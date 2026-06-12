@@ -18,6 +18,7 @@ import {
 } from "@/lib/queries";
 import Chart from "@/components/Chart";
 import Breakdown from "@/components/Breakdown";
+import RealtimePanel from "@/components/RealtimePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +150,8 @@ export default async function SiteDashboard({
       )}
 
       {!hasEvents && <SetupSnippet siteId={site.id} base={await getBase()} />}
+
+      <RealtimePanel siteId={site.id} />
 
       <section className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {cards.map((c) => (

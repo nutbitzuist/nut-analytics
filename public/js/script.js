@@ -72,9 +72,14 @@
 
   var lastPath = null;
 
+  function currentPath() {
+    return location.pathname + location.search;
+  }
+
   function pageview() {
-    if (location.pathname === lastPath) return;
-    lastPath = location.pathname;
+    var path = currentPath();
+    if (path === lastPath) return;
+    lastPath = path;
     send({ type: "pageview", ref: document.referrer || null });
   }
 

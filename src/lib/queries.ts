@@ -120,6 +120,21 @@ export function totals(siteId: string, from: number, to: number, filters: Filter
 
 export type BreakdownRow = { value: string; visitors: number; count: number };
 
+export type RecentEventRow = {
+  id: number;
+  type: string;
+  name: string | null;
+  path: string | null;
+  referrer_source: string | null;
+  country: string | null;
+  browser: string | null;
+  os: string | null;
+  device: string | null;
+  visitor_id: string;
+  session_id: string;
+  ts: number;
+};
+
 export function breakdown(
   siteId: string,
   from: number,
@@ -217,4 +232,16 @@ export function realtimeVisitors(siteId: string): number {
 export function eventCount(siteId: string): number {
   const r = db().prepare("SELECT COUNT(*) AS n FROM events WHERE site_id = ?").get(siteId) as { n: number };
   return r.n;
+}
+
+export function recentEvents(siteId: string, limit = 25): RecentEventRow[] {
+  return db()
+    .prepare(
+      `SELECT id, type, name, path, referrer_source, country, browser, os, device, visitor_id, session_id, ts
+       FROM events
+       WHERE site_id = ?
+       ORDER BY ts DESC
+       LIMIT ?`
+    )
+    .all(siteId, Math.max(1, Math.min(limit, 100))) as RecentEventRow[];
 }

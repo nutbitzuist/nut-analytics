@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     };
     try {
       const u = new URL(String(url));
-      path = u.pathname || "/";
+      path = (u.pathname || "/") + u.search;
       for (const k of Object.keys(utm)) utm[k] = u.searchParams.get(k);
     } catch {
       /* keep defaults */
