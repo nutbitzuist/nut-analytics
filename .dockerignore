@@ -1,0 +1,13 @@
+node_modules
+.next
+data
+.env*
+*.md
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+.dockerignore
+scripts/seed.mjs
+*.log
+.DS_Store

@@ -1,0 +1,102 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db, getSite } from "@/lib/db";
+import { clientIp, geoLookup, isBot, parseUA, referrerSource } from "@/lib/parse";
+import { checkRateLimit } from "@/lib/rateLimit";
+
+export const dynamic = "force-dynamic";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { site: siteId, type, name, url, ref, vid, sid, w, meta } = body ?? {};
+
+    if (!siteId || !vid || !sid || (type !== "pageview" && type !== "goal")) {
+      return NextResponse.json({ error: "bad request" }, { status: 400, headers: CORS });
+    }
+
+    // Basic per-IP rate limit for public ingest (protects the DB from abuse)
+    const ip = clientIp(req.headers);
+    const { allowed, retryAfter } = checkRateLimit(`track:${ip}`, 120, 60_000); // 120/min per IP
+    if (!allowed) {
+      return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { ...CORS, "Retry-After": String(retryAfter || 60) } });
+    }
+
+    const site = getSite(String(siteId));
+    if (!site) {
+      return NextResponse.json({ error: "unknown site" }, { status: 404, headers: CORS });
+    }
+
+    const ua = req.headers.get("user-agent");
+    if (isBot(ua)) {
+      return NextResponse.json({ ok: true, skipped: "bot" }, { headers: CORS });
+    }
+
+    let path = "/";
+    let utm: Record<string, string | null> = {
+      utm_source: null,
+      utm_medium: null,
+      utm_campaign: null,
+      utm_term: null,
+      utm_content: null,
+    };
+    try {
+      const u = new URL(String(url));
+      path = u.pathname || "/";
+      for (const k of Object.keys(utm)) utm[k] = u.searchParams.get(k);
+    } catch {
+      /* keep defaults */
+    }
+
+    const { browser, os, device } = parseUA(ua!);
+    const geo = geoLookup(clientIp(req.headers));
+    const referrer = ref ? String(ref).slice(0, 512) : null;
+
+    db()
+      .prepare(
+        `INSERT INTO events
+          (site_id, type, name, path, referrer, referrer_source,
+           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+           visitor_id, session_id, country, region, city,
+           browser, os, device, screen_w, meta, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        site.id,
+        type,
+        type === "goal" ? String(name ?? "").slice(0, 64) : null,
+        path.slice(0, 512),
+        referrer,
+        referrerSource(referrer, utm.utm_source, site.domain),
+        utm.utm_source,
+        utm.utm_medium,
+        utm.utm_campaign,
+        utm.utm_term,
+        utm.utm_content,
+        String(vid).slice(0, 64),
+        String(sid).slice(0, 64),
+        geo.country,
+        geo.region,
+        geo.city,
+        browser,
+        os,
+        device,
+        Number.isFinite(w) ? Math.round(w) : null,
+        meta ? JSON.stringify(meta).slice(0, 2048) : null,
+        Date.now()
+      );
+
+    return NextResponse.json({ ok: true }, { headers: CORS });
+  } catch {
+    return NextResponse.json({ error: "server error" }, { status: 500, headers: CORS });
+  }
+}

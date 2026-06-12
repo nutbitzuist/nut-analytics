@@ -1,0 +1,37 @@
+services:
+  analytics:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Set these in production (Railway/Fly/etc. variables or .env file)
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      # Recommended: generate with scripts/generate-password-hash.mjs and set HASH instead
+      # DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      # Optional reporting
+      # TELEGRAM_BOT_TOKEN: ...
+      # etc.
+    volumes:
+      # CRITICAL: persist the SQLite database (WAL files too)
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/health', r => process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# Example for local development with live reload (uncomment if desired)
+#  dev:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#      target: builder   # would need dev target adjustments
+#    volumes:
+#      - .:/app
+#      - /app/node_modules
+#    command: npm run dev
+#    ports:
+#      - "3000:3000"
