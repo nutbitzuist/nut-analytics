@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   /^\/api\/track/,
   /^\/api\/stripe\//,
   /^\/api\/v1\//,
+  /^\/api\/mcp/,
   /^\/api\/auth\//,
   /^\/api\/reports\//,
   /^\/api\/health/,
