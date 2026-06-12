@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSite, listSites, regenerateApiKey, getSite, deleteSite, updateSite } from "@/lib/db";
+import { createSite, listSites, regenerateApiKey, getSite, deleteSite, updateSite, logAgentAction } from "@/lib/db";
 import { authenticateApiRequest, requireSite } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +74,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "name and domain are required" }, { status: 400 });
     }
     const site = createSite(body.name, body.domain);
+    logAgentAction({
+      authType: "owner_basic",
+      siteId: site.id,
+      action: "create_site",
+      paramsSummary: { name: body.name, domain: body.domain },
+      status: "success",
+    });
     return NextResponse.json({ site }, { status: 201 });
   }
 
@@ -84,6 +91,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: siteRes.error }, { status: 400 });
     }
     const newKey = regenerateApiKey(siteRes.site.id);
+    logAgentAction({
+      authType: auth.type === "site" ? "site_key" : "owner_basic",
+      siteId: siteRes.site.id,
+      action: "regenerate_api_key",
+      status: "success",
+    });
     return NextResponse.json({ site: siteRes.site.id, api_key: newKey });
   }
 
@@ -99,6 +112,13 @@ export async function POST(req: NextRequest) {
     const updated = updateSite(siteRes.site.id, {
       name: body.name,
       domain: body.domain,
+    });
+    logAgentAction({
+      authType: "owner_basic",
+      siteId: siteRes.site.id,
+      action: "update_site",
+      paramsSummary: { name: body.name, domain: body.domain },
+      status: "success",
     });
     return NextResponse.json({ site: updated });
   }
@@ -138,5 +158,11 @@ export async function DELETE(req: NextRequest) {
   }
 
   deleteSite(site.id);
+  logAgentAction({
+    authType: "owner_basic",
+    siteId: site.id,
+    action: "delete_site",
+    status: "success",
+  });
   return NextResponse.json({ ok: true, deleted: site.id });
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateApiRequest } from "@/lib/api-auth";
-import { createSite, listSites, regenerateApiKey, deleteSite, getSite, addGoal, listGoals, removeGoal, forgetVisitor, updateSite, db } from "@/lib/db";
+import { createSite, listSites, regenerateApiKey, deleteSite, getSite, addGoal, listGoals, removeGoal, forgetVisitor, updateSite, db, logAgentAction } from "@/lib/db";
 import { buildReport } from "@/lib/report";
 import { runReport } from "@/lib/scheduler";
-import { resolvePeriod, totals } from "@/lib/queries";
+import { resolvePeriod, totals, realtimeVisitors } from "@/lib/queries";
 
 // Lightweight MCP over HTTP (JSON-RPC style compatible with many agent MCP clients)
 // POST /api/mcp
@@ -156,6 +156,39 @@ const TOOLS = [
   },
 ];
 
+const RESOURCES = [
+  {
+    uri: "global://sites-overview",
+    name: "Global Sites Overview",
+    description: "Live list of all sites with basic stats (realtime visitors, event counts).",
+    mimeType: "application/json",
+  },
+  {
+    uri: "site://{site_id}/live-stats",
+    name: "Live Site Stats",
+    description: "Current totals and realtime data for a specific site. Replace {site_id} in the URI.",
+    mimeType: "application/json",
+  },
+];
+
+const PROMPTS = [
+  {
+    name: "perform_weekly_review",
+    description: "Generate a structured weekly business review using analytics, revenue attribution, goals, and AI insights.",
+    arguments: [
+      { name: "site_id", description: "Optional specific site. If omitted, reviews all sites.", required: false },
+    ],
+  },
+  {
+    name: "suggest_experiments",
+    description: "Analyze recent data and suggest 3-5 concrete experiments or new goals to test.",
+    arguments: [
+      { name: "site_id", description: "Target site ID", required: true },
+      { name: "focus", description: "Optional focus area (e.g. 'revenue', 'acquisition')", required: false },
+    ],
+  },
+];
+
 export async function POST(req: NextRequest) {
   let body: any;
   try {
@@ -194,6 +227,44 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (method === "resources/list") {
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        id,
+        result: { resources: RESOURCES },
+      });
+    }
+
+    if (method === "resources/read") {
+      const uri = params?.uri;
+      if (!uri) return jsonRpcError(id, -32602, "Missing uri");
+      const content = await readResource(uri, auth);
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        id,
+        result: { contents: [content] },
+      });
+    }
+
+    if (method === "prompts/list") {
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        id,
+        result: { prompts: PROMPTS },
+      });
+    }
+
+    if (method === "prompts/get") {
+      const name = params?.name;
+      const args = params?.arguments || {};
+      const prompt = await getPrompt(name, args, auth);
+      return NextResponse.json({
+        jsonrpc: "2.0",
+        id,
+        result: prompt,
+      });
+    }
+
     return jsonRpcError(id, -32601, `Method not found: ${method}`);
   } catch (err: any) {
     return jsonRpcError(id, -32000, err.message || "Internal error");
@@ -209,13 +280,25 @@ function jsonRpcError(id: any, code: number, message: string) {
 }
 
 async function executeTool(name: string, args: any, auth: any, req: NextRequest) {
-  // Resolve site if needed
-  let site: any = null;
-  if (args.site_id) {
-    site = getSite(args.site_id) || (auth.type === "site" ? auth.site : null);
-  } else if (auth.type === "site") {
-    site = auth.site;
-  }
+  const authType = auth.type === "site" ? "site_key" : "owner_basic";
+  const siteIdForLog = args.site_id || (auth.type === "site" ? auth.site?.id : null);
+
+  try {
+    logAgentAction({
+      authType,
+      siteId: siteIdForLog,
+      action: `mcp:tools/call:${name}`,
+      paramsSummary: args,
+      status: "success",
+    });
+
+    // Resolve site if needed
+    let site: any = null;
+    if (args.site_id) {
+      site = getSite(args.site_id) || (auth.type === "site" ? auth.site : null);
+    } else if (auth.type === "site") {
+      site = auth.site;
+    }
 
   switch (name) {
     case "get_analytics": {
@@ -302,4 +385,94 @@ async function executeTool(name: string, args: any, auth: any, req: NextRequest)
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+  } catch (err: any) {
+    logAgentAction({
+      authType,
+      siteId: siteIdForLog,
+      action: `mcp:tools/call:${name}`,
+      paramsSummary: args,
+      status: "error",
+      details: err.message,
+    });
+    throw err;
+  }
+}
+
+async function readResource(uri: string, auth: any) {
+  if (uri === "global://sites-overview") {
+    const sites = listSites();
+    const overview = sites.map((s) => ({
+      id: s.id,
+      name: s.name,
+      domain: s.domain,
+      realtime: realtimeVisitors ? realtimeVisitors(s.id) : 0, // safe
+    }));
+    return {
+      uri,
+      mimeType: "application/json",
+      text: JSON.stringify({ sites: overview }, null, 2),
+    };
+  }
+
+  const siteMatch = uri.match(/^site:\/\/([^/]+)\/live-stats$/);
+  if (siteMatch) {
+    const siteId = siteMatch[1];
+    const site = getSite(siteId);
+    if (!site) throw new Error("Site not found");
+    const { from, to } = resolvePeriod("today" as any);
+    const t = totals(siteId, from, to, {});
+    return {
+      uri,
+      mimeType: "application/json",
+      text: JSON.stringify({ site: siteId, live_stats: t }, null, 2),
+    };
+  }
+
+  throw new Error(`Unknown resource: ${uri}`);
+}
+
+async function getPrompt(name: string, args: any, auth: any) {
+  if (name === "perform_weekly_review") {
+    const siteId = args.site_id;
+    const sites = siteId ? [getSite(siteId)].filter(Boolean) : listSites();
+    const summaries = sites.map((s) => {
+      if (!s) return null;
+      const { from, to } = resolvePeriod("7d" as any);
+      return { site: s.name || s.id, stats: totals(s.id, from, to, {}) };
+    }).filter(Boolean);
+    return {
+      description: "Weekly business review",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Perform a weekly review for these sites using the data: ${JSON.stringify(summaries)}. Include revenue attribution insights and 2-3 recommended actions.`,
+          },
+        },
+      ],
+    };
+  }
+
+  if (name === "suggest_experiments") {
+    const siteId = args.site_id;
+    if (!siteId) throw new Error("site_id required for this prompt");
+    const site = getSite(siteId);
+    const { from, to } = resolvePeriod("30d" as any);
+    const stats = totals(siteId, from, to, {});
+    return {
+      description: "Suggest experiments",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Based on this 30-day data for ${site?.name}: ${JSON.stringify(stats)}, and focus="${args.focus || "general"}", suggest 3-5 specific, testable experiments or new goals. Be concrete.`,
+          },
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown prompt: ${name}`);
 }

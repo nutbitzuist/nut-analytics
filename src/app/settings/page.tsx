@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { listSites } from "@/lib/db";
+import { listSites, listAgentActions } from "@/lib/db";
 import { realtimeVisitors, eventCount } from "@/lib/queries";
 import { publicOrigin } from "@/lib/auth";
 
@@ -27,6 +27,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default async function GlobalSettings() {
   const sites = listSites();
   const base = await getBase();
+  const recentActivity = listAgentActions(30);
 
   return (
     <main className="space-y-6">
@@ -141,9 +142,78 @@ export default async function GlobalSettings() {
         <p className="mt-3 text-xs text-white/40">Your AI agent has full access to these (and more) via the documented APIs and MCP.</p>
       </Section>
 
+      {/* Agent Activity Log */}
+      <Section title="Recent Agent Activity Log">
+        <p className="mb-3 text-sm text-white/60">
+          Audit trail of actions taken via the v1 API and MCP. This is essential for trusting an autonomous AI agent.
+        </p>
+        {recentActivity.length === 0 ? (
+          <p className="text-white/40 text-sm">No agent actions logged yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-white/40 border-b border-white/10">
+                  <th className="pb-2 pr-3">Time</th>
+                  <th className="pb-2 pr-3">Auth</th>
+                  <th className="pb-2 pr-3">Action</th>
+                  <th className="pb-2 pr-3">Site</th>
+                  <th className="pb-2 pr-3">Status</th>
+                  <th className="pb-2">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentActivity.map((log) => (
+                  <tr key={log.id} className="border-t border-white/5 hover:bg-white/5">
+                    <td className="py-1 pr-3 font-mono text-[10px] text-white/50">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="py-1 pr-3">{log.auth_type}</td>
+                    <td className="py-1 pr-3 font-medium text-emerald-300">{log.action}</td>
+                    <td className="py-1 pr-3 font-mono text-[10px]">{log.site_id || "-"}</td>
+                    <td className={`py-1 pr-3 ${log.status === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                      {log.status}
+                    </td>
+                    <td className="py-1 text-white/60 max-w-xs truncate">{log.details || (log.params ? JSON.parse(log.params).toString().slice(0,80) : "-")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-3 text-[10px] text-white/40">
+          Logged automatically for MCP calls and key v1 admin actions. Your agent can also query this log via API for self-review.
+        </p>
+      </Section>
+
       <p className="text-center text-xs text-white/30">
         Global settings page. Per-site detailed settings are still available at each site&apos;s own Settings page for isolation.
       </p>
+
+      {/* One-click Agent Context */}
+      <Section title="Export Full Agent Context (for your AI)">
+        <p className="mb-3 text-sm text-white/60">
+          Click to generate a ready-to-paste block containing the live URL, current sites, and key instructions. Give this to your agent along with a credential.
+        </p>
+        <pre className="overflow-x-auto rounded-lg bg-black/50 p-4 text-xs leading-relaxed text-emerald-200 whitespace-pre-wrap">
+{`Base URL: ${base}
+
+Current sites (global view):
+${sites.map(s => `- ${s.name} (${s.domain}) | ID: ${s.id}`).join('\n')}
+
+Instructions for the agent:
+Use the full AGENT_MANUAL.md (available in the repo or ask the owner to paste it). 
+Prefer scoped site keys when possible. Use owner Basic auth for global actions.
+All capabilities are documented in /api/v1/openapi and the MCP endpoint /api/mcp.
+
+Recent activity is visible in the Global Settings page above.
+
+Provide a credential (site key or dashboard password) when you want me to act on the live instance.`}
+        </pre>
+        <p className="mt-2 text-[10px] text-white/40">
+          For the absolute latest full manual, have the agent read docs/AGENT_MANUAL.md from the repo or fetch the live OpenAPI.
+        </p>
+      </Section>
     </main>
   );
 }

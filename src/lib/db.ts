@@ -111,6 +111,17 @@ export function applySchema(d: Database.Database) {
       sent_at    INTEGER NOT NULL,
       UNIQUE(kind, period_key)
     );
+
+    CREATE TABLE IF NOT EXISTS agent_activity_log (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp   INTEGER NOT NULL,
+      auth_type   TEXT NOT NULL,           -- 'site_key' or 'owner_basic'
+      site_id     TEXT,
+      action      TEXT NOT NULL,           -- e.g. 'get_analytics', 'create_site', 'mcp:tools/call:get_analytics'
+      params      TEXT,                    -- JSON summary (truncated for safety)
+      status      TEXT NOT NULL,           -- 'success' | 'error'
+      details     TEXT                     -- short result or error message
+    );
   `);
 
   // Back-compat migration for api_key (from original migrate)
@@ -180,6 +191,50 @@ export function updateSite(siteId: string, updates: { name?: string; domain?: st
     d.prepare("UPDATE sites SET domain = ? WHERE id = ?").run(updates.domain.toLowerCase(), siteId);
   }
   return getSite(siteId);
+}
+
+/** Simple audit logging for agent / API actions. Truncates params for safety. */
+export function logAgentAction(params: {
+  authType: 'site_key' | 'owner_basic';
+  siteId?: string | null;
+  action: string;
+  paramsSummary?: any;
+  status: 'success' | 'error';
+  details?: string;
+}) {
+  const d = db();
+  const ts = Date.now();
+  const paramsJson = params.paramsSummary ? JSON.stringify(params.paramsSummary).slice(0, 2000) : null;
+
+  d.prepare(`
+    INSERT INTO agent_activity_log (timestamp, auth_type, site_id, action, params, status, details)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    ts,
+    params.authType,
+    params.siteId || null,
+    params.action,
+    paramsJson,
+    params.status,
+    params.details ? String(params.details).slice(0, 500) : null
+  );
+}
+
+export type AgentLogRow = {
+  id: number;
+  timestamp: number;
+  auth_type: string;
+  site_id: string | null;
+  action: string;
+  params: string | null;
+  status: string;
+  details: string | null;
+};
+
+export function listAgentActions(limit = 50): AgentLogRow[] {
+  return db()
+    .prepare(`SELECT * FROM agent_activity_log ORDER BY timestamp DESC LIMIT ?`)
+    .all(limit) as AgentLogRow[];
 }
 
 export function deleteSite(id: string) {
