@@ -34,7 +34,8 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (!process.env.DASHBOARD_PASSWORD) return NextResponse.next();
+  const hasPassword = !!process.env.DASHBOARD_PASSWORD || !!process.env.DASHBOARD_PASSWORD_HASH;
+  if (!hasPassword) return NextResponse.next();
 
   if (PUBLIC_PATHS.some((re) => re.test(path))) return NextResponse.next();
 
