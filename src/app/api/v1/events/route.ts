@@ -1,28 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, getSiteByApiKey } from "@/lib/db";
+import { db } from "@/lib/db";
 import { clientIp } from "@/lib/parse";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { authenticateApiRequest, requireSite } from "@/lib/api-auth";
+import { resolvePeriod } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Server-side event API — track goals from your backend (signups, upgrades,
- * webhook-driven conversions) where no browser is involved.
+ * Server-side event API — track goals from your backend or AI agent.
  *
  *   POST /api/v1/events
- *   Authorization: Bearer nut_sk_...
- *   { "name": "signup", "visitor_id": "<nut_vid cookie, if known>", "metadata": {...} }
+ *   Authorization: Bearer nut_sk_...   OR   Basic (owner)
  *
- * Pass the visitor's `nut_vid` cookie when you have it (e.g. from the signup
- * request) so the goal joins the visitor's browsing history and channel.
+ *   { "name": "signup", "visitor_id": "<nut_vid>", "site": "xxx", "metadata": {...} }
+ *
+ * Your AI agent can use this (and other v1 endpoints) to record events on your behalf.
  */
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  const key = auth.replace(/^Bearer\s+/i, "").trim();
-  const site = key ? getSiteByApiKey(key) : undefined;
-  if (!site) {
-    return NextResponse.json({ error: "invalid or missing API key" }, { status: 401 });
+  const auth = await authenticateApiRequest(req);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  const siteResult = await requireSite(req, auth);
+  if ("error" in siteResult) {
+    return NextResponse.json({ error: siteResult.error }, { status: 400 });
+  }
+  const site = siteResult.site;
 
   // Light per-IP protection even for authenticated server-side events
   const ip = clientIp(req.headers);
@@ -81,4 +86,57 @@ export async function POST(req: NextRequest) {
     );
 
   return NextResponse.json({ ok: true, visitor_id: visitorId });
+}
+
+/**
+ * Query raw events (for agent analysis, debugging, exports beyond the limited /export).
+ * Supports owner Basic or site key.
+ *
+ * GET /api/v1/events?period=7d&limit=100&type=pageview|goal&visitor_id=...&path=...
+ */
+export async function GET(req: NextRequest) {
+  const auth = await authenticateApiRequest(req);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const siteRes = await requireSite(req, auth);
+  if ("error" in siteRes) {
+    return NextResponse.json({ error: siteRes.error }, { status: 400 });
+  }
+  const site = siteRes.site;
+
+  const { from, to } = resolvePeriod((req.nextUrl.searchParams.get("period") as any) || "7d");
+
+  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "100", 10), 1000);
+  const type = req.nextUrl.searchParams.get("type");
+  const visitorId = req.nextUrl.searchParams.get("visitor_id");
+  const path = req.nextUrl.searchParams.get("path");
+
+  let sql = `SELECT * FROM events WHERE site_id = ? AND ts >= ? AND ts <= ?`;
+  const params: any[] = [site.id, from, to];
+
+  if (type) {
+    sql += ` AND type = ?`;
+    params.push(type);
+  }
+  if (visitorId) {
+    sql += ` AND visitor_id = ?`;
+    params.push(visitorId);
+  }
+  if (path) {
+    sql += ` AND path = ?`;
+    params.push(path);
+  }
+
+  sql += ` ORDER BY ts DESC LIMIT ?`;
+  params.push(limit);
+
+  const events = db().prepare(sql).all(...params);
+
+  return NextResponse.json({
+    site: site.id,
+    count: events.length,
+    events,
+  });
 }

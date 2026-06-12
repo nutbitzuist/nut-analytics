@@ -168,6 +168,20 @@ export function regenerateApiKey(siteId: string): string {
   return key;
 }
 
+export function updateSite(siteId: string, updates: { name?: string; domain?: string }): Site | undefined {
+  const d = db();
+  const site = getSite(siteId);
+  if (!site) return undefined;
+
+  if (updates.name) {
+    d.prepare("UPDATE sites SET name = ? WHERE id = ?").run(updates.name, siteId);
+  }
+  if (updates.domain) {
+    d.prepare("UPDATE sites SET domain = ? WHERE id = ?").run(updates.domain.toLowerCase(), siteId);
+  }
+  return getSite(siteId);
+}
+
 export function deleteSite(id: string) {
   const d = db();
   d.prepare("DELETE FROM events WHERE site_id = ?").run(id);

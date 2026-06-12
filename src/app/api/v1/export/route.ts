@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSiteByApiKey } from "@/lib/db";
+import { authenticateApiRequest, requireSite } from "@/lib/api-auth";
 import {
   breakdown,
   goals,
@@ -24,12 +24,16 @@ export const dynamic = "force-dynamic";
  * kind=summary returns the same payload as /stats but as CSV-friendly rows.
  */
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  const key = auth.replace(/^Bearer\s+/i, "").trim();
-  const site = key ? getSiteByApiKey(key) : undefined;
-  if (!site) {
-    return NextResponse.json({ error: "invalid or missing API key" }, { status: 401 });
+  const auth = await authenticateApiRequest(req);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  const siteRes = await requireSite(req, auth);
+  if ("error" in siteRes) {
+    return NextResponse.json({ error: siteRes.error }, { status: 400 });
+  }
+  const site = siteRes.site;
 
   const p = req.nextUrl.searchParams.get("period") ?? "30d";
   const periodKey = (PERIODS.some((x) => x.key === p) ? p : "30d") as PeriodKey;

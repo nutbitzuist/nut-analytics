@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSiteByApiKey } from "@/lib/db";
+import { authenticateApiRequest, requireSite } from "@/lib/api-auth";
 import {
   breakdown,
   goals,
@@ -15,20 +15,27 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * Stats API.
+ * Stats API — full analytics read access.
  *
- *   GET /api/v1/stats?period=7d
- *   Authorization: Bearer nut_sk_...
+ * Works with:
+ *   - Bearer nut_sk_...          (recommended for agents, scoped to one site)
+ *   - Basic auth (owner)         (your AI agent can use your dashboard password for full power)
  *
- * period: today | 7d | 30d | 90d | all   (default 7d)
+ * Query params:
+ *   period: today | 7d | 30d | 90d | all   (default 7d)
+ *   site: (only needed in owner mode) site id or domain
  */
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization") ?? "";
-  const key = auth.replace(/^Bearer\s+/i, "").trim();
-  const site = key ? getSiteByApiKey(key) : undefined;
-  if (!site) {
-    return NextResponse.json({ error: "invalid or missing API key" }, { status: 401 });
+  const auth = await authenticateApiRequest(req);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+
+  const siteResult = await requireSite(req, auth);
+  if ("error" in siteResult) {
+    return NextResponse.json({ error: siteResult.error }, { status: 400 });
+  }
+  const site = siteResult.site;
 
   const p = req.nextUrl.searchParams.get("period") ?? "7d";
   const periodKey = (PERIODS.some((x) => x.key === p) ? p : "7d") as PeriodKey;
