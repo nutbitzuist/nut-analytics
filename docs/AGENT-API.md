@@ -155,6 +155,13 @@ Available tools (call them via HTTP):
 Always use the Authorization header. Prefer site-scoped keys when possible.
 When the user asks you to "analyze my traffic", "create a new property", "forget a user", or "get the tracking script", use these endpoints.
 The OpenAPI at /api/v1/openapi can be used to auto-generate accurate function calls.
+
+## MCP Support (Lightweight but powerful for agents)
+POST to `/api/mcp` with JSON-RPC style payloads:
+- `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` → discover tools
+- `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_analytics","arguments":{"site_id":"...","period":"30d"}}}` → execute
+
+This gives your agent structured, discoverable tools on top of the REST API. Full details and examples in `docs/agent-function-calling-examples.md`.
 ```
 
 ---

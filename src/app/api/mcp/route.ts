@@ -211,10 +211,7 @@ function jsonRpcError(id: any, code: number, message: string) {
 async function executeTool(name: string, args: any, auth: any, req: NextRequest) {
   // Resolve site if needed
   let site: any = null;
-  if (args.site_id && auth.type !== "site") {
-    // For owner, we may need to resolve
-    const siteRes = await requireSite(req, auth); // this uses query, but for MCP we pass in args
-    // Simplified: for MCP calls, prefer passing site_id and handle
+  if (args.site_id) {
     site = getSite(args.site_id) || (auth.type === "site" ? auth.site : null);
   } else if (auth.type === "site") {
     site = auth.site;

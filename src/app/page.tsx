@@ -28,11 +28,19 @@ export default function Home() {
           <span className="text-2xl">🥜</span>
           <h1 className="text-2xl font-bold tracking-tight">Nut Analytics</h1>
         </div>
-        <form action="/api/auth/logout" method="post">
-          <button className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-white/50 transition hover:text-white">
-            Sign out
-          </button>
-        </form>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/settings"
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white/60 transition hover:text-white hover:border-emerald-400/40"
+          >
+            ⚙ Global Settings
+          </Link>
+          <form action="/api/auth/logout" method="post">
+            <button className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-white/50 transition hover:text-white">
+              Sign out
+            </button>
+          </form>
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2">

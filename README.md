@@ -106,6 +106,32 @@ Make sure `data/` is on a volume so the database survives deploys. Behind a prox
 
 > **Note:** the dashboard is protected when you set `DASHBOARD_PASSWORD` (or the recommended `DASHBOARD_PASSWORD_HASH`). See the "Authentication & Security" section below. Tracking, webhooks, and the API key endpoints remain intentionally public.
 
+## AI Agent Automation (Full Control via API + MCP)
+
+This project is designed so your personal AI agent can manage **everything** programmatically:
+
+- Full site CRUD (create, list, update, delete with safety)
+- Goal management
+- Privacy (forget visitor)
+- Analytics, exports, reports with AI insights
+- Key rotation
+- Server-side event tracking
+- And more
+
+**For your agent:**
+1. Live instance: https://nut-analytics-production.up.railway.app
+2. Paste the contents of `docs/AGENT-API.md` (and `docs/agent-function-calling-examples.md`) into your agent's context.
+3. Provide a site API key (`nut_sk_*` from Settings) or your dashboard password (Basic auth) when you want the agent to act.
+4. The agent can use the REST API at `/api/v1/*` or the MCP endpoint at `/api/mcp` for structured tool use.
+5. OpenAPI spec: `/api/v1/openapi` (for auto-generating tool schemas).
+
+See the docs/ folder for complete manuals, examples, and MCP usage. The agent can now replicate any dashboard action (per-site or globally). Rotate credentials after giving temporary access.
+
+**New: Global Settings Page**
+- Accessible from the main dashboard header ("Global Settings").
+- Central hub to manage *all* sites at the global level: overview of every project, cross-site reports + AI insights runner, agent integration instructions, and quick global actions.
+- This complements the per-site settings pages so you (and your AI agent) can manage many things without switching contexts constantly.
+
 ## Authentication & Security (new in this release)
 - Set `DASHBOARD_PASSWORD=...` to enable login at `/login`. Sessions are 30-day HMAC-signed httpOnly cookies (Web Crypto, Edge-compatible).
 - **Strongly recommended**: generate a hash with `node scripts/generate-password-hash.mjs "your-strong-password"` and set `DASHBOARD_PASSWORD_HASH=...` instead of (or in addition to) the plain password.
