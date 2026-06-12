@@ -31,24 +31,26 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Important: the app expects data/ on a persistent volume
 ENV ANALYTICS_DB_PATH=/app/data/analytics.db
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs && \
+# su-exec lets the entrypoint drop from root to the app user after fixing
+# volume ownership (a mounted volume arrives owned by root at runtime, so a
+# build-time chown cannot cover it).
+RUN apk add --no-cache su-exec && \
+    addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 # Copy only what is needed from the standalone build
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --chmod=755 docker-entrypoint.sh ./
 
-# Ensure data dir exists (volume will override at runtime)
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app
-
-USER nextjs
 
 EXPOSE 3000
 
-# Simple healthcheck (uses the /api/health endpoint we added)
+# Simple healthcheck (uses the /api/health endpoint; respects $PORT)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:3000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"
+  CMD node -e "require('http').get('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"
 
-CMD ["node", "server.js"]
+# Starts as root, chowns the volume, then drops to the nextjs user.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
