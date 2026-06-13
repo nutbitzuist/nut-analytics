@@ -61,7 +61,11 @@ export function referrerSource(
   } catch {
     return "Direct";
   }
-  if (!host || host === siteDomain.replace(/^www\./, "")) return "Direct";
+  const self = siteDomain.replace(/^www\./, "");
+  // Internal traffic — same host, or a subdomain on either side (dr.bulltiq.com
+  // ↔ bulltiq.com ↔ funds.bulltiq.com). Treated as Direct so cross-subdomain
+  // navigation isn't logged as a referral from your own property.
+  if (!host || host === self || host.endsWith("." + self) || self.endsWith("." + host)) return "Direct";
   for (const [re, name] of SOURCES) if (re.test(host)) return name;
   return host;
 }

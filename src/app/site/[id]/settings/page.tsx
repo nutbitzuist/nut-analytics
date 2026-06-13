@@ -124,6 +124,12 @@ export default async function Settings({ params }: { params: Promise<{ id: strin
           route changes.
         </p>
         <Block>{`<script defer src="${base}/js/script.js" data-site="${site.id}"></script>`}</Block>
+        <p className="mt-3 text-sm text-white/60">
+          <strong className="text-white/80">Track subdomains as one site:</strong> put the same snippet (same{" "}
+          <Code>data-site</Code>) on every subdomain and add <Code>data-domain</Code> so the visitor cookie is shared.
+          Cross-subdomain navigation then counts as one visitor, not a referral.
+        </p>
+        <Block>{`<script defer src="${base}/js/script.js" data-site="${site.id}" data-domain=".${site.domain.replace(/^www\./, "")}"></script>`}</Block>
       </Section>
 
       <Section title="Goals & custom events">

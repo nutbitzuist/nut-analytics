@@ -61,6 +61,18 @@ describe("parse", () => {
       expect(referrerSource("https://www.example.com/", null, site)).toBe("Direct");
     });
 
+    it("treats cross-subdomain traffic as internal (Direct)", () => {
+      // Recommended setup: register the ROOT domain as the site, then every
+      // subdomain's traffic is internal (one unified property).
+      expect(referrerSource("https://app.example.com/", null, "example.com")).toBe("Direct");
+      expect(referrerSource("https://funds.bulltiq.com/", null, "bulltiq.com")).toBe("Direct");
+      expect(referrerSource("https://dr.bulltiq.com/", null, "bulltiq.com")).toBe("Direct");
+      // subdomain site, root referrer is still internal
+      expect(referrerSource("https://example.com/", null, "app.example.com")).toBe("Direct");
+      // a genuinely different domain that merely ends similarly is NOT internal
+      expect(referrerSource("https://notexample.com/", null, "example.com")).toBe("notexample.com");
+    });
+
     it("normalizes known sources including modern AI", () => {
       expect(referrerSource("https://www.google.com/search", null, site)).toBe("Google");
       expect(referrerSource("https://x.com/foo", null, site)).toBe("X (Twitter)");

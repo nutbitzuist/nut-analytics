@@ -2,6 +2,9 @@
  * Nut Analytics tracker
  * Usage:
  *   <script defer src="https://YOUR-ANALYTICS-HOST/js/script.js" data-site="SITE_ID"></script>
+ * Track a root domain + all its subdomains as one visitor (use the SAME data-site
+ * and data-domain on every subdomain):
+ *   <script defer src=".../js/script.js" data-site="SITE_ID" data-domain=".example.com"></script>
  * Custom goals:
  *   window.nut('signup', { plan: 'pro' })
  *
@@ -19,6 +22,8 @@
   }
   var SITE = script.getAttribute("data-site");
   var API = script.getAttribute("data-api") || new URL(script.src).origin + "/api/track";
+  // Optional: share the visitor cookie across subdomains (e.g. ".example.com").
+  var COOKIE_DOMAIN = script.getAttribute("data-domain") || null;
   if (!SITE) return;
   // Skip headless browsers / automation (Selenium, Puppeteer, etc.)
   if (navigator.webdriver) return;
@@ -42,7 +47,8 @@
 
   function setCookie(name, value, maxAgeSec) {
     document.cookie =
-      name + "=" + encodeURIComponent(value) + "; path=/; max-age=" + maxAgeSec + "; SameSite=Lax";
+      name + "=" + encodeURIComponent(value) + "; path=/; max-age=" + maxAgeSec +
+      (COOKIE_DOMAIN ? "; domain=" + COOKIE_DOMAIN : "") + "; SameSite=Lax";
   }
 
   var VID = getCookie("nut_vid");

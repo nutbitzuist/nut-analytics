@@ -143,6 +143,13 @@ export default async function SiteDashboard({
           })}
         </nav>
         <Link
+          href={`/site/${site.id}/ask?period=${periodKey}`}
+          className="rounded-lg border border-emerald-400/30 bg-emerald-400/[0.06] px-3 py-2 text-sm text-emerald-200 transition hover:bg-emerald-400/15"
+          title="Ask the AI analyst about this site"
+        >
+          🤖 Ask AI
+        </Link>
+        <Link
           href={`/site/${site.id}/visitors?period=${periodKey}`}
           className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60 transition hover:text-white"
           title="Individual visitor journeys"
