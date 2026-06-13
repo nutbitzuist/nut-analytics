@@ -12,6 +12,7 @@ export default function Breakdown({
   activeValue,
   baseParams,
   basePath,
+  formatValue,
 }: {
   title: string;
   rows: BreakdownRow[];
@@ -19,6 +20,7 @@ export default function Breakdown({
   activeValue?: string;
   baseParams?: Record<string, string>;
   basePath?: string;
+  formatValue?: (value: string) => string;
 }) {
   const max = Math.max(1, ...rows.map((r) => r.visitors));
   // Clickable filtering only when this breakdown maps to a real filter column.
@@ -38,7 +40,7 @@ export default function Breakdown({
         className="absolute inset-y-0 left-0 rounded-md bg-emerald-400/10"
         style={{ width: `${(r.visitors / max) * 100}%` }}
       />
-      <span className="relative z-10 truncate">{r.value}</span>
+      <span className="relative z-10 truncate">{formatValue ? formatValue(r.value) : r.value}</span>
       <span className="relative z-10 tabular-nums text-white/60">{r.visitors.toLocaleString()}</span>
     </>
   );

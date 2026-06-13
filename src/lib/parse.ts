@@ -70,10 +70,57 @@ export function referrerSource(
   return host;
 }
 
+/** "US" -> "🇺🇸 United States". Falls back to the raw value for non-ISO inputs. */
+export function countryLabel(code: string | null | undefined): string {
+  if (!code) return "Unknown";
+  const c = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return code;
+  let flag = "";
+  try {
+    flag = String.fromCodePoint(...[...c].map((ch) => 0x1f1e6 + (ch.charCodeAt(0) - 65)));
+  } catch {
+    flag = "";
+  }
+  let name = c;
+  try {
+    name = new Intl.DisplayNames(["en"], { type: "region" }).of(c) || c;
+  } catch {
+    /* keep code */
+  }
+  return flag ? `${flag} ${name}` : name;
+}
+
 export function clientIp(headers: Headers): string {
   const fwd = headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0].trim();
   return headers.get("x-real-ip") ?? "127.0.0.1";
+}
+
+export type Geo = { country: string | null; region: string | null; city: string | null };
+
+/**
+ * Resolve geo, preferring accurate edge/CDN headers (Cloudflare, Vercel, generic)
+ * when the app is fronted by a geo-aware proxy, and falling back to the bundled
+ * geoip-lite database by IP. Always returns 2-letter country codes when possible.
+ */
+export function geoResolve(headers: Headers, ip: string): Geo {
+  const h = (k: string) => {
+    const v = headers.get(k);
+    return v && v.trim() ? v.trim() : null;
+  };
+  const country =
+    h("cf-ipcountry") || h("x-vercel-ip-country") || h("x-geo-country") || h("x-country-code");
+  if (country && country !== "XX" && country !== "T1") {
+    const region = h("x-vercel-ip-country-region") || h("cf-region-code") || h("x-geo-region");
+    let city = h("x-vercel-ip-city") || h("cf-ipcity") || h("x-geo-city");
+    try {
+      if (city) city = decodeURIComponent(city);
+    } catch {
+      /* keep raw */
+    }
+    return { country: country.toUpperCase(), region, city };
+  }
+  return geoLookup(ip);
 }
 
 export function geoLookup(ip: string): { country: string | null; region: string | null; city: string | null } {

@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getSite, listFunnels } from "@/lib/db";
 import { publicOrigin } from "@/lib/auth";
+import { countryLabel } from "@/lib/parse";
 import {
   breakdown,
   entryExitPages,
@@ -234,7 +235,7 @@ export default async function SiteDashboard({
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Breakdown title="Top pages" rows={breakdown(site.id, from, to, filters, "path")} filterKey="path" activeValue={filters.path} baseParams={baseParams} basePath={basePath} />
         <Breakdown title="Sources" rows={breakdown(site.id, from, to, filters, "referrer_source")} filterKey="source" activeValue={filters.source} baseParams={baseParams} basePath={basePath} />
-        <Breakdown title="Countries" rows={breakdown(site.id, from, to, filters, "country")} filterKey="country" activeValue={filters.country} baseParams={baseParams} basePath={basePath} />
+        <Breakdown title="Countries" rows={breakdown(site.id, from, to, filters, "country")} filterKey="country" activeValue={filters.country} baseParams={baseParams} basePath={basePath} formatValue={countryLabel} />
         <Breakdown title="Devices" rows={breakdown(site.id, from, to, filters, "device")} filterKey="device" activeValue={filters.device} baseParams={baseParams} basePath={basePath} />
         <Breakdown title="Browsers" rows={breakdown(site.id, from, to, filters, "browser")} filterKey="browser" activeValue={filters.browser} baseParams={baseParams} basePath={basePath} />
         <Breakdown title="Operating systems" rows={breakdown(site.id, from, to, filters, "os")} filterKey="os" activeValue={filters.os} baseParams={baseParams} basePath={basePath} />

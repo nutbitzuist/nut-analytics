@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isBot, parseUA, referrerSource, clientIp, geoLookup } from "@/lib/parse";
+import { isBot, parseUA, referrerSource, clientIp, geoLookup, geoResolve, countryLabel } from "@/lib/parse";
 
 describe("parse", () => {
   describe("isBot", () => {
@@ -123,6 +123,39 @@ describe("parse", () => {
       expect(res).toHaveProperty("country");
       expect(res).toHaveProperty("region");
       expect(res).toHaveProperty("city");
+    });
+  });
+
+  describe("geoResolve", () => {
+    it("prefers edge geo headers when present", () => {
+      const h = new Headers({
+        "x-vercel-ip-country": "DE",
+        "x-vercel-ip-country-region": "BE",
+        "x-vercel-ip-city": "Berlin",
+      });
+      expect(geoResolve(h, "8.8.8.8")).toEqual({ country: "DE", region: "BE", city: "Berlin" });
+    });
+
+    it("reads Cloudflare country header", () => {
+      const h = new Headers({ "cf-ipcountry": "gb" });
+      expect(geoResolve(h, "8.8.8.8").country).toBe("GB");
+    });
+
+    it("ignores placeholder country codes and falls back to IP lookup", () => {
+      const h = new Headers({ "cf-ipcountry": "XX" });
+      const res = geoResolve(h, "127.0.0.1");
+      expect(res).toEqual({ country: null, region: null, city: null });
+    });
+  });
+
+  describe("countryLabel", () => {
+    it("turns an ISO code into flag + name", () => {
+      expect(countryLabel("US")).toBe("🇺🇸 United States");
+      expect(countryLabel("de")).toContain("Germany");
+    });
+    it("handles unknown/empty gracefully", () => {
+      expect(countryLabel(null)).toBe("Unknown");
+      expect(countryLabel("Direct")).toBe("Direct");
     });
   });
 });

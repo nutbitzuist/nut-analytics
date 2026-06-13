@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, getSite } from "@/lib/db";
-import { clientIp, geoLookup, isBot, parseUA, referrerSource } from "@/lib/parse";
+import { clientIp, geoResolve, isBot, parseUA, referrerSource } from "@/lib/parse";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { browser, os, device } = parseUA(ua!);
-    const geo = geoLookup(clientIp(req.headers));
+    const geo = geoResolve(req.headers, clientIp(req.headers));
     const referrer = ref ? String(ref).slice(0, 512) : null;
 
     // name carries the goal name, the outbound host, or the download filename.

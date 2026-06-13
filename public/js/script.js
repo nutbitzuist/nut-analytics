@@ -15,16 +15,42 @@
 (function () {
   "use strict";
 
-  var script = document.currentScript;
-  if (!script) {
+  // Robustly find our own <script> tag. document.currentScript is unreliable when
+  // the snippet is injected dynamically (e.g. Next.js <Script>, GTM, async loaders),
+  // so fall back to matching our own src / a data-site attribute rather than blindly
+  // grabbing the last script — otherwise data-site is read as null and we'd bail.
+  function resolveScript() {
+    var cur = document.currentScript;
+    if (cur && cur.getAttribute && cur.getAttribute("data-site")) return cur;
     var all = document.getElementsByTagName("script");
-    script = all[all.length - 1];
+    var i;
+    for (i = all.length - 1; i >= 0; i--) {
+      if (all[i].getAttribute && all[i].getAttribute("data-site") && /\/js\/script\.js(\?|$|#)/.test(all[i].src || "")) {
+        return all[i];
+      }
+    }
+    for (i = all.length - 1; i >= 0; i--) {
+      if (all[i].getAttribute && all[i].getAttribute("data-site")) return all[i];
+    }
+    return cur || all[all.length - 1] || {};
   }
-  var SITE = script.getAttribute("data-site");
-  var API = script.getAttribute("data-api") || new URL(script.src).origin + "/api/track";
+
+  var script = resolveScript();
+  var getAttr = function (n) {
+    return script && script.getAttribute ? script.getAttribute(n) : null;
+  };
+  var SITE = getAttr("data-site");
+  var scriptSrc = (script && script.src) || "";
+  var API = getAttr("data-api") || (scriptSrc ? new URL(scriptSrc).origin + "/api/track" : "/api/track");
   // Optional: share the visitor cookie across subdomains (e.g. ".example.com").
-  var COOKIE_DOMAIN = script.getAttribute("data-domain") || null;
-  if (!SITE) return;
+  var COOKIE_DOMAIN = getAttr("data-domain") || null;
+  if (!SITE) {
+    try {
+      console.warn("[nut] tracking disabled: no data-site found on the script tag. " +
+        "If you load this via a dynamic loader, ensure the data-site attribute is set on the <script> element.");
+    } catch (e) {}
+    return;
+  }
   // Skip headless browsers / automation (Selenium, Puppeteer, etc.)
   if (navigator.webdriver) return;
   // Honour opt-out for local/dev and explicit do-not-track preference handling is intentionally

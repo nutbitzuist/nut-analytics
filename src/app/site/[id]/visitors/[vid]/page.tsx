@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSite } from "@/lib/db";
 import { visitorJourney, type JourneyEvent } from "@/lib/queries";
+import { countryLabel } from "@/lib/parse";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export default async function Journey({
   const facts = [
     { label: "First touch", value: j.firstSource || "Direct" },
     { label: "Last touch", value: j.lastSource || "Direct" },
-    { label: "Location", value: [j.city, j.region, j.country].filter(Boolean).join(", ") || "Unknown" },
+    { label: "Location", value: [j.city, j.region, j.country ? countryLabel(j.country) : null].filter(Boolean).join(", ") || "Unknown" },
     { label: "Device", value: [j.device, j.os, j.browser].filter(Boolean).join(" · ") || "Unknown" },
     { label: "Sessions", value: j.sessions.toLocaleString() },
     { label: "Pageviews", value: j.pageviews.toLocaleString() },

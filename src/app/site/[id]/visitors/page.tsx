@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSite } from "@/lib/db";
 import { PERIODS, resolvePeriod, visitorList, type PeriodKey } from "@/lib/queries";
+import { countryLabel } from "@/lib/parse";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +106,7 @@ export default async function Visitors({
                   </Link>
                 </td>
                 <td className="px-4 py-3 text-white/70">{v.source || "Direct"}</td>
-                <td className="px-4 py-3 text-white/60">{v.country || "—"}</td>
+                <td className="px-4 py-3 text-white/60">{v.country ? countryLabel(v.country) : "—"}</td>
                 <td className="px-4 py-3 text-white/60">{v.device || "—"}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{v.pageviews.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{v.sessions.toLocaleString()}</td>
