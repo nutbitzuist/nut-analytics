@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { getSite } from "@/lib/db";
+import { getSite, listFunnels } from "@/lib/db";
 import { publicOrigin } from "@/lib/auth";
 import {
   breakdown,
+  entryExitPages,
+  eventBreakdown,
   eventCount,
+  funnel,
   goals,
+  newVsReturning,
   PERIODS,
+  previousRange,
   realtimeVisitors,
   resolvePeriod,
   revenue,
@@ -33,6 +38,20 @@ function fmtDuration(sec: number) {
 
 function money(cents: number, currency = "usd") {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
+
+/** Percent change vs the previous period, rendered as a coloured chip. Higher-is-better unless inverse. */
+function Delta({ now, prev, inverse = false }: { now: number; prev: number; inverse?: boolean }) {
+  if (prev === 0 && now === 0) return null;
+  if (prev === 0) return <span className="text-xs text-emerald-400">new</span>;
+  const pct = Math.round(((now - prev) / prev) * 100);
+  if (pct === 0) return <span className="text-xs text-white/40">±0%</span>;
+  const good = inverse ? pct < 0 : pct > 0;
+  return (
+    <span className={`text-xs ${good ? "text-emerald-400" : "text-red-400"}`}>
+      {pct > 0 ? "↑" : "↓"} {Math.abs(pct)}%
+    </span>
+  );
 }
 
 export default async function SiteDashboard({
@@ -63,14 +82,22 @@ export default async function SiteDashboard({
   const goalRows = goals(site.id, from, to, filters);
   const rev = revenue(site.id, from, to, filters);
   const live = realtimeVisitors(site.id);
+  const nr = newVsReturning(site.id, from, to, filters);
+  const funnels = listFunnels(site.id);
+
+  // Compare against the immediately-preceding period of the same length (not for "all"/"today").
+  const showDelta = periodKey !== "all" && periodKey !== "today";
+  const prev = previousRange(from, to);
+  const tPrev = showDelta ? totals(site.id, prev.from, prev.to, filters) : null;
+  const revPrev = showDelta ? revenue(site.id, prev.from, prev.to, filters) : null;
 
   const cards = [
-    { label: "Unique visitors", value: t.visitors.toLocaleString() },
-    { label: "Pageviews", value: t.pageviews.toLocaleString() },
-    { label: "Sessions", value: t.sessions.toLocaleString() },
-    { label: "Bounce rate", value: `${Math.round(t.bounceRate * 100)}%` },
-    { label: "Avg. session", value: fmtDuration(t.avgDuration) },
-    { label: "Revenue", value: money(rev.amount) },
+    { label: "Unique visitors", value: t.visitors.toLocaleString(), now: t.visitors, prev: tPrev?.visitors },
+    { label: "Pageviews", value: t.pageviews.toLocaleString(), now: t.pageviews, prev: tPrev?.pageviews },
+    { label: "Sessions", value: t.sessions.toLocaleString(), now: t.sessions, prev: tPrev?.sessions },
+    { label: "Bounce rate", value: `${Math.round(t.bounceRate * 100)}%`, now: t.bounceRate, prev: tPrev?.bounceRate, inverse: true },
+    { label: "Avg. engaged time", value: fmtDuration(t.avgDuration), now: t.avgDuration, prev: tPrev?.avgDuration },
+    { label: "Revenue", value: money(rev.amount), now: rev.amount, prev: revPrev?.amount },
   ];
 
   return (
@@ -157,9 +184,31 @@ export default async function SiteDashboard({
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs text-white/50">{c.label}</div>
-            <div className="mt-1 text-xl font-bold tabular-nums">{c.value}</div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-xl font-bold tabular-nums">{c.value}</span>
+              {showDelta && c.prev !== undefined && <Delta now={c.now} prev={c.prev} inverse={c.inverse} />}
+            </div>
           </div>
         ))}
+      </section>
+
+      <section className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {(() => {
+          const totalNR = nr.new + nr.returning;
+          const pct = (v: number) => (totalNR ? Math.round((v / totalNR) * 100) : 0);
+          return [
+            { label: "New visitors", value: nr.new.toLocaleString(), sub: `${pct(nr.new)}%` },
+            { label: "Returning visitors", value: nr.returning.toLocaleString(), sub: `${pct(nr.returning)}%` },
+            { label: "Views per visitor", value: t.visitors ? (t.pageviews / t.visitors).toFixed(1) : "0", sub: "pages/visitor" },
+            { label: "Total engaged time", value: fmtDuration(t.totalDuration), sub: "this period" },
+          ].map((c) => (
+            <div key={c.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="text-xs text-white/50">{c.label}</div>
+              <div className="mt-1 text-lg font-bold tabular-nums">{c.value}</div>
+              <div className="text-xs text-white/35">{c.sub}</div>
+            </div>
+          ));
+        })()}
       </section>
 
       <section className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -174,6 +223,54 @@ export default async function SiteDashboard({
         <Breakdown title="Browsers" rows={breakdown(site.id, from, to, filters, "browser")} filterKey="browser" activeValue={filters.browser} baseParams={baseParams} basePath={basePath} />
         <Breakdown title="Operating systems" rows={breakdown(site.id, from, to, filters, "os")} filterKey="os" activeValue={filters.os} baseParams={baseParams} basePath={basePath} />
       </section>
+
+      <section className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Breakdown title="Entry pages" rows={entryExitPages(site.id, from, to, filters, "entry")} />
+        <Breakdown title="Exit pages" rows={entryExitPages(site.id, from, to, filters, "exit")} />
+        <Breakdown title="Campaigns (UTM)" rows={breakdown(site.id, from, to, filters, "utm_campaign")} />
+        <Breakdown title="UTM sources" rows={breakdown(site.id, from, to, filters, "utm_source")} />
+        <Breakdown title="UTM mediums" rows={breakdown(site.id, from, to, filters, "utm_medium")} />
+        <Breakdown title="Outbound links" rows={eventBreakdown(site.id, from, to, filters, "outbound")} />
+        <Breakdown title="File downloads" rows={eventBreakdown(site.id, from, to, filters, "download")} />
+      </section>
+
+      {funnels.length > 0 && (
+        <section className="mt-4 grid gap-4 md:grid-cols-2">
+          {funnels.map((f) => {
+            const steps = funnel(site.id, from, to, f.steps);
+            return (
+              <div key={f.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <h3 className="mb-3 text-sm font-semibold text-white/80">
+                  Funnel: {f.name}
+                  {steps.length > 0 && (
+                    <span className="ml-2 font-normal text-white/40">
+                      {(steps[steps.length - 1].rate * 100).toFixed(1)}% overall
+                    </span>
+                  )}
+                </h3>
+                <ul className="space-y-2">
+                  {steps.map((s, i) => (
+                    <li key={i}>
+                      <div className="mb-0.5 flex justify-between text-xs">
+                        <span className="text-white/70">
+                          <span className="text-white/40">{i + 1}.</span> {s.kind}:{s.label}
+                        </span>
+                        <span className="tabular-nums text-white/60">
+                          {s.visitors.toLocaleString()}
+                          {i > 0 && s.dropoff > 0 && <span className="ml-2 text-red-400">−{Math.round(s.dropoff * 100)}%</span>}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(s.rate * 100)}%` }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       <section className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">

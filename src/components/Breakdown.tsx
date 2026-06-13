@@ -15,20 +15,33 @@ export default function Breakdown({
 }: {
   title: string;
   rows: BreakdownRow[];
-  filterKey: string;
+  filterKey?: string;
   activeValue?: string;
-  baseParams: Record<string, string>;
-  basePath: string;
+  baseParams?: Record<string, string>;
+  basePath?: string;
 }) {
   const max = Math.max(1, ...rows.map((r) => r.visitors));
+  // Clickable filtering only when this breakdown maps to a real filter column.
+  const filterable = !!(filterKey && basePath);
 
   const hrefFor = (value: string) => {
-    const params = new URLSearchParams(baseParams);
-    if (activeValue === value) params.delete(filterKey);
-    else params.set(filterKey, value);
+    const params = new URLSearchParams(baseParams ?? {});
+    if (activeValue === value) params.delete(filterKey!);
+    else params.set(filterKey!, value);
     const qs = params.toString();
-    return qs ? `${basePath}?${qs}` : basePath;
+    return qs ? `${basePath}?${qs}` : basePath!;
   };
+
+  const Bar = ({ r }: { r: BreakdownRow }) => (
+    <>
+      <span
+        className="absolute inset-y-0 left-0 rounded-md bg-emerald-400/10"
+        style={{ width: `${(r.visitors / max) * 100}%` }}
+      />
+      <span className="relative z-10 truncate">{r.value}</span>
+      <span className="relative z-10 tabular-nums text-white/60">{r.visitors.toLocaleString()}</span>
+    </>
+  );
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -42,19 +55,20 @@ export default function Breakdown({
         <ul className="space-y-1">
           {rows.map((r) => (
             <li key={r.value}>
-              <Link
-                href={hrefFor(r.value)}
-                className={`relative flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-white/5 ${
-                  activeValue === r.value ? "ring-1 ring-emerald-400/50" : ""
-                }`}
-              >
-                <span
-                  className="absolute inset-y-0 left-0 rounded-md bg-emerald-400/10"
-                  style={{ width: `${(r.visitors / max) * 100}%` }}
-                />
-                <span className="relative z-10 truncate">{r.value}</span>
-                <span className="relative z-10 tabular-nums text-white/60">{r.visitors.toLocaleString()}</span>
-              </Link>
+              {filterable ? (
+                <Link
+                  href={hrefFor(r.value)}
+                  className={`relative flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-white/5 ${
+                    activeValue === r.value ? "ring-1 ring-emerald-400/50" : ""
+                  }`}
+                >
+                  <Bar r={r} />
+                </Link>
+              ) : (
+                <div className="relative flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm">
+                  <Bar r={r} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

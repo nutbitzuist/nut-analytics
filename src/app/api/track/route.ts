@@ -18,9 +18,10 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { site: siteId, type, name, url, ref, vid, sid, w, meta } = body ?? {};
+    const { site: siteId, type, name, url, ref, vid, sid, w, h, d, sd, n, dest, meta } = body ?? {};
 
-    if (!siteId || !vid || !sid || (type !== "pageview" && type !== "goal")) {
+    const KNOWN_TYPES = ["pageview", "goal", "engagement", "outbound", "download"];
+    if (!siteId || !vid || !sid || !KNOWN_TYPES.includes(type)) {
       return NextResponse.json({ error: "bad request" }, { status: 400, headers: CORS });
     }
 
@@ -61,19 +62,32 @@ export async function POST(req: NextRequest) {
     const geo = geoLookup(clientIp(req.headers));
     const referrer = ref ? String(ref).slice(0, 512) : null;
 
+    // name carries the goal name, the outbound host, or the download filename.
+    const eventName =
+      type === "goal" || type === "outbound" || type === "download"
+        ? String(name ?? "").slice(0, 128) || null
+        : null;
+    // meta carries goal metadata or the destination url for outbound/download clicks.
+    let metaJson: string | null = null;
+    if (meta) metaJson = JSON.stringify(meta).slice(0, 2048);
+    else if (dest) metaJson = JSON.stringify({ dest: String(dest).slice(0, 1024) });
+
+    const clampInt = (v: unknown, max: number) =>
+      typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : null;
+
     db()
       .prepare(
         `INSERT INTO events
           (site_id, type, name, path, referrer, referrer_source,
            utm_source, utm_medium, utm_campaign, utm_term, utm_content,
            visitor_id, session_id, country, region, city,
-           browser, os, device, screen_w, meta, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           browser, os, device, screen_w, screen_h, duration, scroll, is_new, meta, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         site.id,
         type,
-        type === "goal" ? String(name ?? "").slice(0, 64) : null,
+        eventName,
         path.slice(0, 512),
         referrer,
         referrerSource(referrer, utm.utm_source, site.domain),
@@ -90,8 +104,12 @@ export async function POST(req: NextRequest) {
         browser,
         os,
         device,
-        Number.isFinite(w) ? Math.round(w) : null,
-        meta ? JSON.stringify(meta).slice(0, 2048) : null,
+        clampInt(w, 100000),
+        clampInt(h, 100000),
+        type === "engagement" ? clampInt(d, 86400) : null,
+        type === "engagement" ? clampInt(sd, 100) : null,
+        type === "pageview" ? (n === 1 || n === "1" ? 1 : 0) : null,
+        metaJson,
         Date.now()
       );
 

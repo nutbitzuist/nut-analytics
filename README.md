@@ -119,7 +119,7 @@ This project is designed so your personal AI agent can manage **everything** pro
 - And more
 
 **For your agent:**
-1. Live instance: https://nut-analytics-production.up.railway.app
+1. Live instance: https://nut-analytics.up.railway.app
 2. Paste the contents of `docs/AGENT-API.md` (and `docs/agent-function-calling-examples.md`) into your agent's context.
 3. Provide a site API key (`nut_sk_*` from Settings) or your dashboard password (Basic auth) when you want the agent to act.
 4. The agent can use the REST API at `/api/v1/*` or the MCP endpoint at `/api/mcp` for structured tool use.

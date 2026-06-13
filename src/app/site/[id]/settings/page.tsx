@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { addGoal, deleteSite, forgetVisitor, getSite, listGoals, regenerateApiKey, removeGoal } from "@/lib/db";
+import { addFunnel, addGoal, deleteSite, forgetVisitor, getSite, listFunnels, listGoals, regenerateApiKey, removeFunnel, removeGoal, type FunnelStep } from "@/lib/db";
 import { publicOrigin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +38,33 @@ export default async function Settings({ params }: { params: Promise<{ id: strin
   const site = getSite(id);
   if (!site) notFound();
   const goals = listGoals(site.id);
+  const funnels = listFunnels(site.id);
   const base = await getBase();
   const settingsPath = `/site/${site.id}/settings`;
+
+  async function addFunnelAction(formData: FormData) {
+    "use server";
+    const name = String(formData.get("name") ?? "").trim().slice(0, 64);
+    const raw = String(formData.get("steps") ?? "");
+    const steps: FunnelStep[] = raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const isGoal = /^goal:/i.test(l);
+        const match = l.replace(/^(page|goal):/i, "").trim();
+        return { kind: isGoal ? ("goal" as const) : ("page" as const), match };
+      })
+      .filter((s) => s.match);
+    if (name && steps.length >= 2) addFunnel(id, name, steps);
+    revalidatePath(settingsPath);
+  }
+
+  async function removeFunnelAction(formData: FormData) {
+    "use server";
+    removeFunnel(id, String(formData.get("funnel_id")));
+    revalidatePath(settingsPath);
+  }
 
   async function addGoalAction(formData: FormData) {
     "use server";
@@ -94,8 +119,9 @@ export default async function Settings({ params }: { params: Promise<{ id: strin
 
       <Section title="Tracking snippet">
         <p className="text-sm text-white/60">
-          Add to the <Code>&lt;head&gt;</Code> of {site.domain}. Pageviews, sessions, sources, UTM and devices are
-          tracked automatically, including SPA route changes.
+          Add to the <Code>&lt;head&gt;</Code> of {site.domain}. Pageviews, sessions, sources, UTM, devices,
+          engaged time, scroll depth, outbound clicks and file downloads are tracked automatically, including SPA
+          route changes.
         </p>
         <Block>{`<script defer src="${base}/js/script.js" data-site="${site.id}"></script>`}</Block>
       </Section>
@@ -139,6 +165,58 @@ window.nut('lead_capture', { source: 'pricing-page' });
           />
           <button className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400">
             Add goal
+          </button>
+        </form>
+      </Section>
+
+      <Section title="Funnels">
+        <p className="text-sm text-white/60">
+          Define a multi-step conversion path and see where visitors drop off. One step per line, prefixed with{" "}
+          <Code>page:</Code> (matches a path, append <Code>*</Code> for prefix) or <Code>goal:</Code> (a goal name).
+          Needs at least two steps.
+        </p>
+        <Block>{`page:/
+page:/pricing
+goal:start_trial
+goal:purchase`}</Block>
+        <ul className="mt-3 space-y-2">
+          {funnels.length === 0 && <li className="text-sm text-white/30">No funnels yet.</li>}
+          {funnels.map((f) => (
+            <li key={f.id} className="rounded-md border border-white/5 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-emerald-300">{f.name}</span>
+                <form action={removeFunnelAction}>
+                  <input type="hidden" name="funnel_id" value={f.id} />
+                  <button className="text-white/40 transition hover:text-red-400">remove</button>
+                </form>
+              </div>
+              <div className="mt-1 text-xs text-white/40">
+                {f.steps.map((s, i) => (
+                  <span key={i}>
+                    {i > 0 && " → "}
+                    {s.kind}:{s.match}
+                  </span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <form action={addFunnelAction} className="mt-3 space-y-2">
+          <input
+            name="name"
+            placeholder="Funnel name (e.g. Trial signup)"
+            required
+            className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-emerald-400/60"
+          />
+          <textarea
+            name="steps"
+            rows={4}
+            placeholder={"page:/\npage:/pricing\ngoal:start_trial"}
+            required
+            className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs outline-none focus:border-emerald-400/60"
+          />
+          <button className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400">
+            Create funnel
           </button>
         </form>
       </Section>

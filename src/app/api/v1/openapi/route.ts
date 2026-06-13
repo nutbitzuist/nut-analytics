@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/auth";
 
 /**
  * Basic OpenAPI 3.0 spec for the v1 API.
@@ -6,7 +7,8 @@ import { NextResponse } from "next/server";
  *
  * Access at: /api/v1/openapi
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const origin = process.env.PUBLIC_BASE_URL || publicOrigin(req.headers);
   const spec = {
     openapi: "3.0.3",
     info: {
@@ -15,7 +17,7 @@ export async function GET() {
       description: "Programmatic access for owners and AI agents. Use site Bearer keys for scoped access or Basic auth with your dashboard password for full owner capabilities.",
     },
     servers: [
-      { url: "https://nut-analytics-production.up.railway.app" },
+      { url: origin },
     ],
     components: {
       securitySchemes: {

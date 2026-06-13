@@ -4,6 +4,10 @@
  *   <script defer src="https://YOUR-ANALYTICS-HOST/js/script.js" data-site="SITE_ID"></script>
  * Custom goals:
  *   window.nut('signup', { plan: 'pro' })
+ *
+ * Tracks: pageviews (incl. SPA navigation), engaged time + scroll depth per page,
+ * custom & declarative goals, outbound link clicks, file downloads, and decorates
+ * Stripe Payment Links for revenue attribution.
  */
 (function () {
   "use strict";
@@ -18,6 +22,8 @@
   if (!SITE) return;
   // Skip headless browsers / automation (Selenium, Puppeteer, etc.)
   if (navigator.webdriver) return;
+  // Honour opt-out for local/dev and explicit do-not-track preference handling is intentionally
+  // left to the server (DNT is unreliable); we only skip obvious bots above.
 
   /* ---------- visitor & session ids (first-party cookies) ---------- */
 
@@ -40,8 +46,10 @@
   }
 
   var VID = getCookie("nut_vid");
+  var IS_NEW = false;
   if (!VID) {
     VID = uuid();
+    IS_NEW = true; // first time we've ever seen this browser
     setCookie("nut_vid", VID, 60 * 60 * 24 * 365); // 1 year
   }
 
@@ -56,10 +64,11 @@
 
   function send(payload) {
     payload.site = SITE;
-    payload.url = location.href;
+    if (!payload.url) payload.url = location.href;
     payload.vid = VID;
     payload.sid = sessionId();
     payload.w = window.innerWidth;
+    payload.h = window.innerHeight;
     var body = JSON.stringify(payload);
     if (navigator.sendBeacon) {
       navigator.sendBeacon(API, new Blob([body], { type: "application/json" }));
@@ -67,6 +76,54 @@
       fetch(API, { method: "POST", body: body, keepalive: true, headers: { "Content-Type": "application/json" } });
     }
   }
+
+  /* ---------- engaged time + scroll depth ---------- */
+  // We measure *active* time (tab visible) per page, the way DataFast/Plausible do,
+  // so "time on page", session duration and bounce rate are real rather than 0.
+
+  var engagedMs = 0; // active ms accrued for the current page since the last flush
+  var lastTick = Date.now();
+  var isVisible = document.visibilityState !== "hidden";
+  var maxScroll = 0; // 0-100
+  var pvUrl = null; // url of the page engagement is currently being attributed to
+
+  function recordScroll() {
+    var doc = document.documentElement;
+    var scrollable = doc.scrollHeight - window.innerHeight;
+    var pct = scrollable > 0 ? ((window.scrollY || doc.scrollTop || 0) / scrollable) * 100 : 100;
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (pct > maxScroll) maxScroll = pct;
+  }
+
+  function accrue() {
+    var now = Date.now();
+    if (isVisible) engagedMs += now - lastTick;
+    lastTick = now;
+  }
+
+  function flushEngagement() {
+    accrue();
+    if (engagedMs < 1000 || !pvUrl) {
+      engagedMs = 0;
+      return;
+    }
+    send({ type: "engagement", url: pvUrl, d: Math.round(engagedMs / 1000), sd: maxScroll });
+    engagedMs = 0;
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") {
+      isVisible = false;
+      accrue();
+      flushEngagement(); // tab hidden: persist what we have (mobile may never fire pagehide)
+    } else {
+      isVisible = true;
+      lastTick = Date.now();
+    }
+  });
+  window.addEventListener("pagehide", flushEngagement);
+  window.addEventListener("beforeunload", flushEngagement);
+  window.addEventListener("scroll", recordScroll, { passive: true });
 
   /* ---------- pageviews (incl. SPA navigation) ---------- */
 
@@ -79,8 +136,16 @@
   function pageview() {
     var path = currentPath();
     if (path === lastPath) return;
+    // Flush engagement for the page we're leaving before switching context.
+    flushEngagement();
     lastPath = path;
-    send({ type: "pageview", ref: document.referrer || null });
+    pvUrl = location.href;
+    maxScroll = 0;
+    engagedMs = 0;
+    lastTick = Date.now();
+    recordScroll();
+    send({ type: "pageview", url: pvUrl, ref: document.referrer || null, n: IS_NEW ? 1 : 0 });
+    IS_NEW = false; // only the very first pageview of a brand-new visitor counts as "new"
   }
 
   var push = history.pushState;
@@ -123,6 +188,32 @@
       var form = e.target;
       if (form && form.getAttribute && form.getAttribute("data-nut-goal")) {
         window.nut(form.getAttribute("data-nut-goal"));
+      }
+    },
+    true
+  );
+
+  /* ---------- outbound links & file downloads ---------- */
+
+  var DOWNLOAD_RE = /\.(pdf|zip|rar|7z|tar|gz|tgz|dmg|exe|pkg|msi|apk|csv|xlsx?|docx?|pptx?|txt|rtf|mp3|wav|ogg|mp4|mov|avi|mkv|webm|epub|pages|key|numbers)(\?|#|$)/i;
+
+  document.addEventListener(
+    "click",
+    function (e) {
+      var a = e.target && e.target.closest && e.target.closest("a[href]");
+      if (!a) return;
+      var href = a.getAttribute("href");
+      if (!href || href.charAt(0) === "#" || /^(mailto:|tel:|javascript:)/i.test(href)) return;
+      var u;
+      try {
+        u = new URL(a.href, location.href);
+      } catch (err) {
+        return;
+      }
+      if (DOWNLOAD_RE.test(u.pathname)) {
+        send({ type: "download", name: u.pathname.split("/").pop().slice(0, 128), dest: u.href });
+      } else if (u.host && u.host !== location.host) {
+        send({ type: "outbound", name: u.host.replace(/^www\./, ""), dest: u.href });
       }
     },
     true

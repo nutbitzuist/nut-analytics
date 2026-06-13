@@ -3,7 +3,7 @@
 This guide explains how to give your AI agent (Grok, Claude, etc.) complete control over your Nut Analytics instance with zero ongoing manual work from you after initial setup.
 
 ## Step 1: Access Your Live Instance
-- URL: https://nut-analytics-production.up.railway.app (or your deployed URL)
+- URL: https://nut-analytics.up.railway.app (or your deployed URL)
 - Default login email: email.nutty@gmail.com
 - **Immediately rotate the password** after first login:
   1. Use the app or Railway dashboard to set a strong `DASHBOARD_PASSWORD` and preferably `DASHBOARD_PASSWORD_HASH` (generate with `node scripts/generate-password-hash.mjs "your-strong-pass"`).
@@ -24,7 +24,7 @@ For full global power (manage all sites, reports, etc.), also note your `DASHBOA
 
 ## Step 4: Start Using the Agent
 Example first message:
-"Here is the complete Nut Analytics Agent Manual and function schemas. Base URL: https://nut-analytics-production.up.railway.app
+"Here is the complete Nut Analytics Agent Manual and function schemas. Base URL: https://nut-analytics.up.railway.app
 
 Here is a site key for my main project: nut_sk_XXXX...
 

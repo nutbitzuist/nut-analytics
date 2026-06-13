@@ -2,7 +2,7 @@
 
 **Purpose**: This is the definitive, self-contained manual for any AI agent (Grok, Claude, Cursor, custom agents, etc.) to fully control and manage a Nut Analytics instance programmatically.
 
-**Base URL**: https://nut-analytics-production.up.railway.app (or your self-hosted URL)
+**Base URL**: https://nut-analytics.up.railway.app (or your self-hosted URL)
 
 **Philosophy**: The agent should be able to do *everything* a human owner can do in the dashboard and more (via APIs). This includes site management, analytics, goals, privacy, reports, exports, and agent-specific features.
 

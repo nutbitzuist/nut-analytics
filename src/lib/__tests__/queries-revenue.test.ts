@@ -52,12 +52,16 @@ function insertEvent(siteId: string, partial: Partial<any> & { type: string; ts:
     os: "macOS",
     device: "Desktop",
     screen_w: 1440,
+    screen_h: 900,
+    duration: null,
+    scroll: null,
+    is_new: null,
     meta: null,
   };
   const row = { ...defaults, site_id: siteId, ...partial };
   d.prepare(
-    `INSERT INTO events (site_id, type, name, path, referrer, referrer_source, utm_source, utm_medium, utm_campaign, utm_term, utm_content, visitor_id, session_id, country, region, city, browser, os, device, screen_w, meta, ts)
-     VALUES (@site_id, @type, @name, @path, @referrer, @referrer_source, @utm_source, @utm_medium, @utm_campaign, @utm_term, @utm_content, @visitor_id, @session_id, @country, @region, @city, @browser, @os, @device, @screen_w, @meta, @ts)`
+    `INSERT INTO events (site_id, type, name, path, referrer, referrer_source, utm_source, utm_medium, utm_campaign, utm_term, utm_content, visitor_id, session_id, country, region, city, browser, os, device, screen_w, screen_h, duration, scroll, is_new, meta, ts)
+     VALUES (@site_id, @type, @name, @path, @referrer, @referrer_source, @utm_source, @utm_medium, @utm_campaign, @utm_term, @utm_content, @visitor_id, @session_id, @country, @region, @city, @browser, @os, @device, @screen_w, @screen_h, @duration, @scroll, @is_new, @meta, @ts)`
   ).run(row);
 }
 
@@ -108,21 +112,50 @@ describe("queries + revenue attribution (core business logic)", () => {
     expect(google?.visitors).toBe(1);
   });
 
-  it("calculates bounce rate and avg session duration correctly", () => {
+  it("calculates bounce rate and engaged duration from engagement events", () => {
     const t0 = now - 10 * 60_000;
-    // v1: single page view -> bounce
+    // v1: single page view, no engagement -> bounce, 0 engaged seconds
     insertEvent(site.id, { type: "pageview", visitor_id: "v1", session_id: "s1", ts: t0 });
-    // v2: two pageviews ~30s apart -> not bounce, duration ~30s
+    // v2: two pageviews + engagement events totalling 30s -> not bounce
     insertEvent(site.id, { type: "pageview", visitor_id: "v2", session_id: "s2", ts: t0 + 1000 });
-    insertEvent(site.id, { type: "pageview", visitor_id: "v2", session_id: "s2", ts: t0 + 31000 });
+    insertEvent(site.id, { type: "engagement", visitor_id: "v2", session_id: "s2", ts: t0 + 5000, duration: 10 });
+    insertEvent(site.id, { type: "pageview", visitor_id: "v2", session_id: "s2", ts: t0 + 31000, path: "/pricing" });
+    insertEvent(site.id, { type: "engagement", visitor_id: "v2", session_id: "s2", ts: t0 + 41000, duration: 20, path: "/pricing" });
 
     const { from, to } = resolvePeriod("all");
     const t = totals(site.id, from, to, {});
     expect(t.visitors).toBe(2);
-    // bounce rate = avg of (views==1) over sessions = 0.5
+    // bounce rate = avg of (pageviews==1) over sessions = 0.5
     expect(t.bounceRate).toBeCloseTo(0.5, 1);
-    // One session duration 0 (single pageview bounce), one ~30s → avg 15s
+    // s1 = 0s engaged, s2 = 30s engaged -> avg 15s
     expect(t.avgDuration).toBeCloseTo(15, 0);
+    expect(t.totalDuration).toBe(30);
+  });
+
+  it("computes new vs returning visitors and funnel conversion", async () => {
+    const { funnel, newVsReturning } = await import("@/lib/queries");
+    // returning visitor: first seen long before the window's "new" cutoff
+    insertEvent(site.id, { type: "pageview", visitor_id: "ret", session_id: "r1", ts: now - 40 * DAY, path: "/" });
+    insertEvent(site.id, { type: "pageview", visitor_id: "ret", session_id: "r2", ts: now - 1000, path: "/" });
+    insertEvent(site.id, { type: "pageview", visitor_id: "ret", session_id: "r2", ts: now - 900, path: "/pricing" });
+    insertEvent(site.id, { type: "goal", visitor_id: "ret", session_id: "r2", ts: now - 800, name: "start_trial" });
+    // brand new visitor in the last 7 days
+    insertEvent(site.id, { type: "pageview", visitor_id: "fresh", session_id: "f1", ts: now - 2000, path: "/" });
+
+    const { from, to } = resolvePeriod("7d");
+    const nr = newVsReturning(site.id, from, to, {});
+    expect(nr.new).toBe(1); // "fresh"
+    expect(nr.returning).toBe(1); // "ret" (first seen 40d ago)
+
+    const f = funnel(site.id, from, to, [
+      { kind: "page", match: "/" },
+      { kind: "page", match: "/pricing" },
+      { kind: "goal", match: "start_trial" },
+    ]);
+    expect(f[0].visitors).toBe(2); // both hit "/"
+    expect(f[1].visitors).toBe(1); // only "ret" reached /pricing
+    expect(f[2].visitors).toBe(1); // only "ret" fired start_trial
+    expect(f[2].rate).toBeCloseTo(0.5, 1);
   });
 
   it("attributes revenue to first-touch source (the killer feature)", () => {

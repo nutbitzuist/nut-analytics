@@ -4,6 +4,7 @@ import { createSite, listSites, regenerateApiKey, deleteSite, getSite, addGoal, 
 import { buildReport } from "@/lib/report";
 import { runReport } from "@/lib/scheduler";
 import { resolvePeriod, totals, realtimeVisitors } from "@/lib/queries";
+import { publicOrigin } from "@/lib/auth";
 
 // Lightweight MCP over HTTP (JSON-RPC style compatible with many agent MCP clients)
 // POST /api/mcp
@@ -335,7 +336,7 @@ async function executeTool(name: string, args: any, auth: any, req: NextRequest)
     case "get_site_details": {
       const s = getSite(args.site_id);
       if (!s) throw new Error("Site not found");
-      const base = "https://nut-analytics-production.up.railway.app"; // or dynamic
+      const base = process.env.PUBLIC_BASE_URL || publicOrigin(req.headers);
       return { site: s, snippet: `<script defer src="${base}/js/script.js" data-site="${s.id}"></script>` };
     }
 

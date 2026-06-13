@@ -133,7 +133,7 @@ Point your agent at this for the latest machine-readable schema of all endpoints
 You can copy the block below into your agent's instructions:
 
 ```markdown
-You have full access to the user's Nut Analytics instance at: https://nut-analytics-production.up.railway.app
+You have full access to the user's Nut Analytics instance at: https://nut-analytics.up.railway.app
 
 Authentication: Use the provided site API key (Bearer) or the owner's dashboard credentials (Basic).
 

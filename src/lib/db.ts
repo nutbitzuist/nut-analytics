@@ -56,8 +56,8 @@ export function applySchema(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS events (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       site_id         TEXT NOT NULL,
-      type            TEXT NOT NULL,           -- 'pageview' | 'goal'
-      name            TEXT,                    -- goal name when type='goal'
+      type            TEXT NOT NULL,           -- 'pageview' | 'goal' | 'engagement' | 'outbound' | 'download'
+      name            TEXT,                    -- goal name / outbound host / download filename
       path            TEXT,
       referrer        TEXT,
       referrer_source TEXT,                    -- normalized: Google, X, Direct, ...
@@ -75,12 +75,17 @@ export function applySchema(d: Database.Database) {
       os              TEXT,
       device          TEXT,                    -- desktop | mobile | tablet
       screen_w        INTEGER,
-      meta            TEXT,                    -- JSON metadata for goals
+      screen_h        INTEGER,
+      duration        INTEGER,                 -- engaged seconds (engagement events)
+      scroll          INTEGER,                 -- max scroll depth 0-100 (engagement events)
+      is_new          INTEGER,                 -- 1 if first-ever pageview for this visitor
+      meta            TEXT,                    -- JSON metadata for goals / destination url
       ts              INTEGER NOT NULL         -- unix ms
     );
     CREATE INDEX IF NOT EXISTS idx_events_site_ts   ON events(site_id, ts);
     CREATE INDEX IF NOT EXISTS idx_events_visitor   ON events(site_id, visitor_id, ts);
     CREATE INDEX IF NOT EXISTS idx_events_session   ON events(site_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_events_type      ON events(site_id, type, ts);
 
     CREATE TABLE IF NOT EXISTS payments (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +108,15 @@ export function applySchema(d: Database.Database) {
       created_at INTEGER NOT NULL,
       UNIQUE(site_id, name)
     );
+
+    CREATE TABLE IF NOT EXISTS funnels (
+      id         TEXT PRIMARY KEY,
+      site_id    TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      steps      TEXT NOT NULL,               -- JSON array of { kind: 'page'|'goal', match: string }
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_funnels_site ON funnels(site_id);
 
     CREATE TABLE IF NOT EXISTS report_log (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,6 +145,17 @@ export function applySchema(d: Database.Database) {
   }
   for (const row of d.prepare("SELECT id FROM sites WHERE api_key IS NULL").all() as { id: string }[]) {
     d.prepare("UPDATE sites SET api_key = ? WHERE id = ?").run(newApiKey(), row.id);
+  }
+
+  // Additive migrations for richer tracking (existing production DBs have the old columns only).
+  const eventCols = new Set((d.prepare("PRAGMA table_info(events)").all() as { name: string }[]).map((c) => c.name));
+  for (const [col, type] of [
+    ["screen_h", "INTEGER"],
+    ["duration", "INTEGER"],
+    ["scroll", "INTEGER"],
+    ["is_new", "INTEGER"],
+  ] as [string, string][]) {
+    if (!eventCols.has(col)) d.exec(`ALTER TABLE events ADD COLUMN ${col} ${type}`);
   }
 }
 
@@ -242,6 +267,7 @@ export function deleteSite(id: string) {
   d.prepare("DELETE FROM events WHERE site_id = ?").run(id);
   d.prepare("DELETE FROM payments WHERE site_id = ?").run(id);
   d.prepare("DELETE FROM goals WHERE site_id = ?").run(id);
+  d.prepare("DELETE FROM funnels WHERE site_id = ?").run(id);
   d.prepare("DELETE FROM sites WHERE id = ?").run(id);
 }
 
@@ -259,6 +285,40 @@ export function addGoal(siteId: string, name: string) {
 
 export function removeGoal(siteId: string, name: string) {
   db().prepare("DELETE FROM goals WHERE site_id = ? AND name = ?").run(siteId, name);
+}
+
+export type FunnelStep = { kind: "page" | "goal"; match: string };
+export type Funnel = { id: string; site_id: string; name: string; steps: FunnelStep[]; created_at: number };
+
+type FunnelRow = { id: string; site_id: string; name: string; steps: string; created_at: number };
+
+export function listFunnels(siteId: string): Funnel[] {
+  const rows = db()
+    .prepare("SELECT * FROM funnels WHERE site_id = ? ORDER BY created_at ASC")
+    .all(siteId) as FunnelRow[];
+  return rows.map((r) => ({ ...r, steps: safeSteps(r.steps) }));
+}
+
+function safeSteps(raw: string): FunnelStep[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addFunnel(siteId: string, name: string, steps: FunnelStep[]): Funnel {
+  const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  const funnel: Funnel = { id, site_id: siteId, name, steps, created_at: Date.now() };
+  db()
+    .prepare("INSERT INTO funnels (id, site_id, name, steps, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(id, siteId, name, JSON.stringify(steps), funnel.created_at);
+  return funnel;
+}
+
+export function removeFunnel(siteId: string, id: string) {
+  db().prepare("DELETE FROM funnels WHERE site_id = ? AND id = ?").run(siteId, id);
 }
 
 /**
