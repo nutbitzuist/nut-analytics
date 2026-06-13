@@ -25,7 +25,9 @@ const nextConfig: NextConfig = {
         source: "/js/script.js",
         headers: [
           { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Cache-Control", value: "public, max-age=86400" },
+          // Short cache + revalidation so tracker fixes reach visitors in minutes,
+          // not a day. The file is tiny; ETag revalidation keeps it cheap.
+          { key: "Cache-Control", value: "public, max-age=300, must-revalidate" },
         ],
       },
       // Apply security headers to the dashboard UI surfaces
