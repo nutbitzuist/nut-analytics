@@ -11,6 +11,7 @@ import {
   resolvePeriod,
   revenue,
   timeseries,
+  topCustomers,
   totals,
   type PeriodKey,
 } from "@/lib/queries";
@@ -67,5 +68,6 @@ export async function GET(req: NextRequest) {
     downloads: eventBreakdown(site.id, from, to, {}, "download"),
     goals: goals(site.id, from, to, {}),
     revenue: revenue(site.id, from, to),
+    top_customers: topCustomers(site.id, from, to),
   });
 }

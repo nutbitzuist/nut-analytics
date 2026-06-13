@@ -337,12 +337,14 @@ export function revenue(siteId: string, from: number, to: number, filters: Filte
     )
     .get(siteId, from, to, ...filterParams) as { amount: number; payments: number; customers: number };
 
-  // Attribute each payment to the visitor's first-touch channel.
+  // Attribute each payment to the visitor's FIRST-touch channel (what brought them in).
+  // Only pageviews carry a real referrer; goal/engagement events default to "Direct",
+  // so attribution must look at pageviews only.
   const bySource = db()
     .prepare(
       `SELECT COALESCE(
                 (SELECT e.referrer_source FROM events e
-                 WHERE e.site_id = p.site_id AND e.visitor_id = p.visitor_id
+                 WHERE e.site_id = p.site_id AND e.visitor_id = p.visitor_id AND e.type = 'pageview'
                  ORDER BY e.ts ASC LIMIT 1),
                 'Unattributed'
               ) AS value,
@@ -354,7 +356,230 @@ export function revenue(siteId: string, from: number, to: number, filters: Filte
     )
     .all(siteId, from, to, ...filterParams) as { value: string; amount: number; payments: number }[];
 
-  return { ...total, bySource };
+  // Attribute each payment to the visitor's LAST-touch channel: the most recent
+  // pageview source before the payment (the channel that closed the sale).
+  const bySourceLast = db()
+    .prepare(
+      `SELECT COALESCE(
+                (SELECT e.referrer_source FROM events e
+                 WHERE e.site_id = p.site_id AND e.visitor_id = p.visitor_id AND e.type = 'pageview' AND e.ts <= p.ts
+                 ORDER BY e.ts DESC LIMIT 1),
+                (SELECT e.referrer_source FROM events e
+                 WHERE e.site_id = p.site_id AND e.visitor_id = p.visitor_id AND e.type = 'pageview'
+                 ORDER BY e.ts DESC LIMIT 1),
+                'Unattributed'
+              ) AS value,
+              SUM(p.amount) AS amount,
+              COUNT(*) AS payments
+       FROM payments p
+       WHERE p.site_id = ? AND p.ts >= ? AND p.ts <= ? ${filterSql}
+       GROUP BY value ORDER BY amount DESC LIMIT 10`
+    )
+    .all(siteId, from, to, ...filterParams) as { value: string; amount: number; payments: number }[];
+
+  return { ...total, bySource, bySourceLast };
+}
+
+export type CustomerRow = {
+  customer_key: string;
+  email: string | null;
+  ltv: number;
+  payments: number;
+  first_payment: number;
+  last_payment: number;
+  source: string;
+};
+
+/** Customers ranked by lifetime value (LTV). Anonymous one-off payments stay separate. */
+export function topCustomers(siteId: string, from: number, to: number, limit = 10): CustomerRow[] {
+  return db()
+    .prepare(
+      `SELECT
+         COALESCE(c.customer_id, c.email, 'pay_' || c.min_id) AS customer_key,
+         c.email AS email,
+         c.ltv AS ltv,
+         c.payments AS payments,
+         c.first_payment AS first_payment,
+         c.last_payment AS last_payment,
+         COALESCE(
+           (SELECT e.referrer_source FROM events e
+            WHERE e.site_id = ? AND e.visitor_id = c.visitor_id AND e.type = 'pageview'
+            ORDER BY e.ts ASC LIMIT 1),
+           'Unattributed'
+         ) AS source
+       FROM (
+         SELECT
+           customer_id,
+           MAX(email) AS email,
+           SUM(amount) AS ltv,
+           COUNT(*) AS payments,
+           MIN(ts) AS first_payment,
+           MAX(ts) AS last_payment,
+           MIN(id) AS min_id,
+           MAX(visitor_id) AS visitor_id
+         FROM payments
+         WHERE site_id = ? AND ts >= ? AND ts <= ?
+         GROUP BY COALESCE(customer_id, email, 'pay_' || id)
+       ) c
+       ORDER BY c.ltv DESC LIMIT ?`
+    )
+    .all(siteId, siteId, from, to, limit) as CustomerRow[];
+}
+
+export type VisitorSummary = {
+  visitor_id: string;
+  first_seen: number;
+  last_seen: number;
+  pageviews: number;
+  sessions: number;
+  goals: number;
+  source: string | null;
+  country: string | null;
+  device: string | null;
+  revenue: number;
+};
+
+/** Page of visitors active in the period, newest activity first, with per-visitor summary. */
+export function visitorList(
+  siteId: string,
+  from: number,
+  to: number,
+  limit = 50,
+  offset = 0
+): VisitorSummary[] {
+  return db()
+    .prepare(
+      `WITH page AS (
+         SELECT visitor_id,
+                MIN(ts) AS first_seen,
+                MAX(ts) AS last_seen,
+                SUM(CASE WHEN type = 'pageview' THEN 1 ELSE 0 END) AS pageviews,
+                COUNT(DISTINCT session_id) AS sessions,
+                SUM(CASE WHEN type = 'goal' THEN 1 ELSE 0 END) AS goals
+         FROM events
+         WHERE site_id = ? AND ts >= ? AND ts <= ?
+         GROUP BY visitor_id
+         ORDER BY last_seen DESC
+         LIMIT ? OFFSET ?
+       )
+       SELECT p.*,
+         (SELECT e.referrer_source FROM events e
+          WHERE e.site_id = ? AND e.visitor_id = p.visitor_id AND e.type = 'pageview' ORDER BY e.ts ASC LIMIT 1) AS source,
+         (SELECT e.country FROM events e
+          WHERE e.site_id = ? AND e.visitor_id = p.visitor_id AND e.country IS NOT NULL
+          ORDER BY e.ts DESC LIMIT 1) AS country,
+         (SELECT e.device FROM events e
+          WHERE e.site_id = ? AND e.visitor_id = p.visitor_id ORDER BY e.ts DESC LIMIT 1) AS device,
+         COALESCE((SELECT SUM(amount) FROM payments pay
+          WHERE pay.site_id = ? AND pay.visitor_id = p.visitor_id), 0) AS revenue
+       FROM page p`
+    )
+    .all(siteId, from, to, limit, offset, siteId, siteId, siteId, siteId) as VisitorSummary[];
+}
+
+export type JourneyEvent = {
+  type: string;
+  name: string | null;
+  path: string | null;
+  referrer_source: string | null;
+  session_id: string;
+  duration: number | null;
+  scroll: number | null;
+  meta: string | null;
+  ts: number;
+};
+
+export type VisitorJourney = {
+  visitor_id: string;
+  first_seen: number;
+  last_seen: number;
+  pageviews: number;
+  sessions: number;
+  goals: number;
+  firstSource: string | null;
+  lastSource: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  device: string | null;
+  browser: string | null;
+  os: string | null;
+  revenue: number;
+  payments: number;
+  timeline: JourneyEvent[];
+};
+
+/** Full timeline + profile for a single visitor (DataFast-style visitor journey). */
+export function visitorJourney(siteId: string, visitorId: string, limit = 500): VisitorJourney | null {
+  const d = db();
+  const base = d
+    .prepare(
+      `SELECT MIN(ts) AS first_seen, MAX(ts) AS last_seen,
+              SUM(CASE WHEN type = 'pageview' THEN 1 ELSE 0 END) AS pageviews,
+              COUNT(DISTINCT session_id) AS sessions,
+              SUM(CASE WHEN type = 'goal' THEN 1 ELSE 0 END) AS goals
+       FROM events WHERE site_id = ? AND visitor_id = ?`
+    )
+    .get(siteId, visitorId) as {
+    first_seen: number | null;
+    last_seen: number | null;
+    pageviews: number;
+    sessions: number;
+    goals: number;
+  };
+  if (!base.first_seen) return null;
+
+  const latest = d
+    .prepare(
+      `SELECT referrer_source, country, region, city, device, browser, os
+       FROM events WHERE site_id = ? AND visitor_id = ? ORDER BY ts DESC LIMIT 1`
+    )
+    .get(siteId, visitorId) as
+    | { referrer_source: string | null; country: string | null; region: string | null; city: string | null; device: string | null; browser: string | null; os: string | null }
+    | undefined;
+
+  const firstSource = (
+    d.prepare(`SELECT referrer_source FROM events WHERE site_id = ? AND visitor_id = ? AND type = 'pageview' ORDER BY ts ASC LIMIT 1`).get(siteId, visitorId) as
+      | { referrer_source: string | null }
+      | undefined
+  )?.referrer_source ?? null;
+
+  const lastSource = (
+    d.prepare(`SELECT referrer_source FROM events WHERE site_id = ? AND visitor_id = ? AND type = 'pageview' ORDER BY ts DESC LIMIT 1`).get(siteId, visitorId) as
+      | { referrer_source: string | null }
+      | undefined
+  )?.referrer_source ?? null;
+
+  const rev = d
+    .prepare(`SELECT COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS payments FROM payments WHERE site_id = ? AND visitor_id = ?`)
+    .get(siteId, visitorId) as { amount: number; payments: number };
+
+  const timeline = d
+    .prepare(
+      `SELECT type, name, path, referrer_source, session_id, duration, scroll, meta, ts
+       FROM events WHERE site_id = ? AND visitor_id = ? ORDER BY ts ASC LIMIT ?`
+    )
+    .all(siteId, visitorId, limit) as JourneyEvent[];
+
+  return {
+    visitor_id: visitorId,
+    first_seen: base.first_seen,
+    last_seen: base.last_seen ?? base.first_seen,
+    pageviews: base.pageviews,
+    sessions: base.sessions,
+    goals: base.goals,
+    firstSource,
+    lastSource,
+    country: latest?.country ?? null,
+    region: latest?.region ?? null,
+    city: latest?.city ?? null,
+    device: latest?.device ?? null,
+    browser: latest?.browser ?? null,
+    os: latest?.os ?? null,
+    revenue: rev.amount,
+    payments: rev.payments,
+    timeline,
+  };
 }
 
 export function realtimeVisitors(siteId: string): number {

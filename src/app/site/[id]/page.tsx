@@ -17,6 +17,7 @@ import {
   resolvePeriod,
   revenue,
   timeseries,
+  topCustomers,
   totals,
   type Filters,
   type PeriodKey,
@@ -84,6 +85,7 @@ export default async function SiteDashboard({
   const live = realtimeVisitors(site.id);
   const nr = newVsReturning(site.id, from, to, filters);
   const funnels = listFunnels(site.id);
+  const customers = topCustomers(site.id, from, to);
 
   // Compare against the immediately-preceding period of the same length (not for "all"/"today").
   const showDelta = periodKey !== "all" && periodKey !== "today";
@@ -140,6 +142,13 @@ export default async function SiteDashboard({
             );
           })}
         </nav>
+        <Link
+          href={`/site/${site.id}/visitors?period=${periodKey}`}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60 transition hover:text-white"
+          title="Individual visitor journeys"
+        >
+          👤 Visitors
+        </Link>
         <Link
           href={`/site/${site.id}/settings`}
           className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60 transition hover:text-white"
@@ -317,20 +326,67 @@ export default async function SiteDashboard({
           ) : (
             <>
               <div className="mb-3 text-sm text-white/60">
-                {money(rev.amount)} from {rev.payments} payment{rev.payments === 1 ? "" : "s"}
+                {money(rev.amount)} from {rev.payments} payment{rev.payments === 1 ? "" : "s"} · {rev.customers} customer
+                {rev.customers === 1 ? "" : "s"}
               </div>
-              <ul className="space-y-1 text-sm">
-                {rev.bySource.map((r) => (
-                  <li key={r.value} className="flex justify-between border-t border-white/5 py-2">
-                    <span>{r.value}</span>
-                    <span className="tabular-nums text-emerald-300">{money(r.amount)}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-xs font-medium text-white/40">First touch (acquisition)</div>
+                  <ul className="space-y-1 text-sm">
+                    {rev.bySource.map((r) => (
+                      <li key={r.value} className="flex justify-between border-t border-white/5 py-1.5">
+                        <span className="truncate">{r.value}</span>
+                        <span className="tabular-nums text-emerald-300">{money(r.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-medium text-white/40">Last touch (closing)</div>
+                  <ul className="space-y-1 text-sm">
+                    {rev.bySourceLast.map((r) => (
+                      <li key={r.value} className="flex justify-between border-t border-white/5 py-1.5">
+                        <span className="truncate">{r.value}</span>
+                        <span className="tabular-nums text-emerald-300">{money(r.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </>
           )}
         </div>
       </section>
+
+      {customers.length > 0 && (
+        <section className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-white/80">Top customers by lifetime value</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-white/40">
+                  <th className="pb-2 font-normal">Customer</th>
+                  <th className="pb-2 font-normal">Acquired via</th>
+                  <th className="pb-2 text-right font-normal">Payments</th>
+                  <th className="pb-2 text-right font-normal">LTV</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((c) => (
+                  <tr key={c.customer_key} className="border-t border-white/5">
+                    <td className="py-2 truncate text-white/80" title={c.email || c.customer_key}>
+                      {c.email || c.customer_key}
+                    </td>
+                    <td className="py-2 text-white/60">{c.source}</td>
+                    <td className="py-2 text-right tabular-nums">{c.payments.toLocaleString()}</td>
+                    <td className="py-2 text-right tabular-nums text-emerald-300">{money(c.ltv)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

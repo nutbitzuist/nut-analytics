@@ -185,6 +185,41 @@ describe("queries + revenue attribution (core business logic)", () => {
     expect(directRow?.amount).toBe(1900);
   });
 
+  it("attributes revenue by last-touch and computes customer LTV + visitor journey", async () => {
+    const { topCustomers, visitorJourney, visitorList } = await import("@/lib/queries");
+    const v = "vid_journey";
+    // first touch Google, last touch (before payment) Twitter
+    insertEvent(site.id, { type: "pageview", visitor_id: v, session_id: "j1", ts: now - 5 * DAY, referrer_source: "Google", path: "/" });
+    insertEvent(site.id, { type: "pageview", visitor_id: v, session_id: "j2", ts: now - 2 * DAY, referrer_source: "X (Twitter)", path: "/pricing" });
+    insertEvent(site.id, { type: "goal", visitor_id: v, session_id: "j2", ts: now - 2 * DAY + 100, name: "start_trial" });
+    insertPayment(site.id, { visitor_id: v, customer_id: "cus_1", email: "a@b.com", amount: 5000, ts: now - DAY });
+    insertPayment(site.id, { visitor_id: v, customer_id: "cus_1", email: "a@b.com", amount: 2000, ts: now - 1000 });
+
+    const { from, to } = resolvePeriod("all");
+    const rev = revenue(site.id, from, to, {});
+    const first = rev.bySource.find((r) => r.value === "Google");
+    const last = rev.bySourceLast.find((r) => r.value === "X (Twitter)");
+    expect(first?.amount).toBe(7000); // both payments credited to first touch Google
+    expect(last?.amount).toBe(7000); // both credited to last touch before payment = Twitter
+
+    const cust = topCustomers(site.id, from, to);
+    const c1 = cust.find((c) => c.customer_key === "cus_1");
+    expect(c1?.ltv).toBe(7000);
+    expect(c1?.payments).toBe(2);
+    expect(c1?.source).toBe("Google"); // acquisition = first touch
+
+    const list = visitorList(site.id, from, to);
+    const vrow = list.find((r) => r.visitor_id === v);
+    expect(vrow?.revenue).toBe(7000);
+    expect(vrow?.source).toBe("Google");
+
+    const j = visitorJourney(site.id, v);
+    expect(j?.firstSource).toBe("Google");
+    expect(j?.lastSource).toBe("X (Twitter)");
+    expect(j?.revenue).toBe(7000);
+    expect(j?.timeline.length).toBe(3); // 2 pageviews + 1 goal
+  });
+
   it("respects active filters when computing revenue by channel", () => {
     const v1 = "v-filtered";
     insertEvent(site.id, { type: "pageview", visitor_id: v1, ts: now - DAY, referrer_source: "Google", path: "/pricing" });
