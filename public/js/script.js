@@ -24,8 +24,11 @@
     if (cur && cur.getAttribute && cur.getAttribute("data-site")) return cur;
     var all = document.getElementsByTagName("script");
     var i;
+    // Prefer a script that is clearly ours: carries data-site and its src ends in
+    // script.js — matches both the default /js/script.js and any first-party proxy
+    // path (e.g. /_nut/script.js) used to dodge CSP/ad-blockers.
     for (i = all.length - 1; i >= 0; i--) {
-      if (all[i].getAttribute && all[i].getAttribute("data-site") && /\/js\/script\.js(\?|$|#)/.test(all[i].src || "")) {
+      if (all[i].getAttribute && all[i].getAttribute("data-site") && /script\.js(\?|$|#)/.test(all[i].src || "")) {
         return all[i];
       }
     }

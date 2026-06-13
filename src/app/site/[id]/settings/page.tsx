@@ -132,6 +132,48 @@ export default async function Settings({ params }: { params: Promise<{ id: strin
         <Block>{`<script defer src="${base}/js/script.js" data-site="${site.id}" data-domain=".${site.domain.replace(/^www\./, "")}"></script>`}</Block>
       </Section>
 
+      <Section title="Installing on a site with a Content Security Policy">
+        <p className="text-sm text-white/60">
+          If the site has a CSP, the browser blocks any analytics host that isn&apos;t allowlisted (this affects every
+          vendor — DataFast, Plausible, Umami alike). You&apos;ll see a <Code>violates ... Content Security Policy</Code>{" "}
+          error in the browser console. Add this host to <strong className="text-white/80">both</strong>{" "}
+          <Code>script-src</Code> and <Code>connect-src</Code>, then redeploy the site:
+        </p>
+        <Block>{`script-src  'self' ... ${base.replace(/^https?:\/\//, "https://")}
+connect-src 'self' ... ${base.replace(/^https?:\/\//, "https://")}`}</Block>
+      </Section>
+
+      <Section title="Zero-config install (first-party proxy) — recommended for SaaS & ad-blocker resistance">
+        <p className="text-sm text-white/60">
+          Serve the tracker and ingest endpoint through <strong className="text-white/80">your own domain</strong>. The
+          browser sees same-origin requests (allowed by <Code>&apos;self&apos;</Code>), so <strong className="text-white/80">no
+          CSP edit is ever needed</strong> and ad-blockers can&apos;t see a third-party analytics domain to block. Add two
+          rewrites, then use the first-party snippet.
+        </p>
+        <p className="mt-3 text-sm font-medium text-white/70">1. Snippet (note <Code>data-api</Code>):</p>
+        <Block>{`<script defer src="/_nut/script.js" data-site="${site.id}" data-api="/_nut/track"></script>`}</Block>
+        <p className="mt-3 text-sm font-medium text-white/70">2a. Next.js — <Code>next.config.js</Code>:</p>
+        <Block>{`async rewrites() {
+  return [
+    { source: "/_nut/script.js", destination: "${base}/js/script.js" },
+    { source: "/_nut/track",     destination: "${base}/api/track" },
+  ];
+}`}</Block>
+        <p className="mt-3 text-sm font-medium text-white/70">2b. Vercel — <Code>vercel.json</Code>:</p>
+        <Block>{`{
+  "rewrites": [
+    { "source": "/_nut/script.js", "destination": "${base}/js/script.js" },
+    { "source": "/_nut/track",     "destination": "${base}/api/track" }
+  ]
+}`}</Block>
+        <p className="mt-3 text-sm font-medium text-white/70">2c. nginx:</p>
+        <Block>{`location = /_nut/script.js { proxy_pass ${base}/js/script.js; }
+location = /_nut/track     { proxy_pass ${base}/api/track; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }`}</Block>
+        <p className="mt-2 text-xs text-white/40">
+          More platforms (Cloudflare Workers, Caddy) and verification steps in <Code>docs/INSTALL.md</Code>.
+        </p>
+      </Section>
+
       <Section title="Goals & custom events">
         <p className="text-sm text-white/60">
           Track any conversion — CTA clicks, form submits, lead capture, newsletter signups — from the browser,
