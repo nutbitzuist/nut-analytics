@@ -1,0 +1,21 @@
+name = "nut-analytics-cf-candidate"
+main = "src/cloudflare/worker.ts"
+compatibility_date = "2026-08-10"
+workers_dev = true
+preview_urls = false
+
+# Local production candidate only. Do not add routes/custom_domains here without owner cutover approval.
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nut-analytics-candidate"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+CF_MIGRATION_WRITE_MODE = "disabled"
