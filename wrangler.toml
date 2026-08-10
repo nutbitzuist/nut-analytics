@@ -14,7 +14,7 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "nut-analytics-candidate"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "fbf95502-5f9f-4af8-8b1c-4a8e78114725"
 migrations_dir = "migrations"
 
 [vars]
