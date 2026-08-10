@@ -1,6 +1,15 @@
 # Nut Analytics Cloudflare migration candidate
 
-Stage: **prepared locally → package measurable**. This repository does **not** deploy, bind DNS, mutate Cloudflare resources, push, publish, or delete Railway.
+Stage: **prepared locally → package measured → isolated workers.dev preview deployed**. No canonical DNS/domain, Railway service, Vercel project, or production client has been changed or deleted.
+
+Live isolated candidate: `https://nut-analytics-cf-candidate.email-nutty.workers.dev`
+
+- D1 database `nut-analytics-candidate` was created in APAC and migration `0001_initial.sql` applied.
+- The known personal-site ID `82501baf840a` was seeded for `nut.leverage100x.com`; historical Railway SQLite data remains unavailable and was not fabricated.
+- Worker startup measured 4 ms; upload measured 28.08 KiB / 7.90 KiB gzip.
+- `/api/health` returned `200` from Workers+D1 with one site.
+- A synthetic pageview returned `200`, was verified in remote D1, then deleted and verified absent.
+- The live isolated version has D1 writes enabled after that gate; the checked-in configuration remains fail-closed (`disabled`) so an ordinary redeploy cannot silently reopen writes.
 
 ## Verdict
 
@@ -41,8 +50,9 @@ Production data currently lives in SQLite (`data/analytics.db` or `ANALYTICS_DB_
 ```json
 {
   "candidate": "cloudflare-workers-d1",
-  "stage": "prepared_locally_package_measured",
-  "productionMutation": false,
+  "stage": "isolated_workers_dev_preview_deployed",
+  "canonicalProductionMutation": false,
+  "isolatedCloudflarePreviewMutation": true,
   "routesOwned": [
     "/js/script.js",
     "/api/health",

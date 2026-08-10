@@ -1,6 +1,7 @@
 name = "nut-analytics-cf-candidate"
 main = "src/cloudflare/worker.ts"
 compatibility_date = "2026-08-10"
+compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 preview_urls = false
 
